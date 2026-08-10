@@ -54,7 +54,7 @@
     display:flex; flex-direction:column;
   }
   #top-zone{
-    flex:0 0 auto;
+    flex:0 0 auto; position:relative; z-index:6;
     padding:calc(22px + env(safe-area-inset-top)) calc(28px + env(safe-area-inset-right)) 16px calc(28px + env(safe-area-inset-left));
     display:flex; align-items:flex-start; justify-content:space-between; gap:20px;
     background:linear-gradient(to bottom, rgba(2,4,8,0.92) 0%, rgba(2,4,8,0.55) 60%, rgba(2,4,8,0) 100%);
@@ -65,9 +65,11 @@
     position:relative;
     overflow:hidden;
     min-height:0;
+    z-index:1;
+    contain:strict;      /* the globe can never paint outside its own zone */
   }
   #bottom-zone{
-    flex:0 0 auto;
+    flex:0 0 auto; position:relative; z-index:6;
     padding:18px calc(28px + env(safe-area-inset-right)) calc(26px + env(safe-area-inset-bottom)) calc(28px + env(safe-area-inset-left));
     background:linear-gradient(to top, rgba(2,4,8,0.95) 0%, rgba(2,4,8,0.7) 55%, rgba(2,4,8,0) 100%);
     display:flex; flex-direction:column; gap:22px;
@@ -229,7 +231,9 @@
   #play-btn{ width:46px; height:46px; border-radius:50%; border:1px solid var(--pin-active); background:none; color:var(--pin-active); cursor:pointer; flex-shrink:0; font-size:13px; }
   #play-btn:hover{ background:rgba(242,178,92,.1); }
   #waveform{ flex:1; height:38px; display:flex; align-items:center; gap:2px; }
-  #waveform span{ flex:1; background:var(--rule); border-radius:1px; transition:height .12s,background .12s; }
+  #waveform span{ flex:1; background:var(--rule); border-radius:1px; transition:background .08s; }
+  #play-status{ font-size:11px; color:var(--text-muted); font-family:var(--serif); font-style:italic; margin-top:8px; min-height:14px; }
+  #play-btn:disabled{ cursor:default; }
   #waveform.playing span{ background:var(--pin-active); }
 
   /* Modals */
@@ -312,7 +316,9 @@
   .about-row span:last-child{ color:var(--text-muted); text-align:right; }
 
   @media (max-width:600px){
-    #top-zone{ padding:calc(14px + env(safe-area-inset-top)) 16px 10px 16px; }
+    #top-zone{ padding:calc(12px + env(safe-area-inset-top)) 16px 8px 16px; align-items:center; }
+    #top-zone .title{ margin-bottom:3px; }
+    #top-zone .eyebrow{ margin-bottom:3px; }
     #bottom-zone{ padding:12px 16px calc(16px + env(safe-area-inset-bottom)) 16px; gap:16px; }
     #timeline-track{ margin:4px 4px 20px; }
     .title{ font-size:19px; }
@@ -403,6 +409,7 @@
       <button id="play-btn">▶</button>
       <div id="waveform"></div>
     </div>
+    <div id="play-status"></div>
     <div id="spec-wrap" style="display:none;">
       <img id="p-spec" alt="Spectrogram of this recording">
       <div class="spec-axis"><span>low</span><span id="spec-dur">—</span><span>high</span></div>
@@ -649,12 +656,17 @@ const DPR=Math.min(window.devicePixelRatio||1,3);
 function layout(){
   W=zone.clientWidth; H=zone.clientHeight;
   CX=W/2; CY=H/2;
-  baseR=Math.min(W,H)*0.44;
+  baseR=Math.min(W,H)*0.46;
   gsvg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   gsvg.setAttribute('width',W); gsvg.setAttribute('height',H);
   render();
 }
 addEventListener('resize',layout);
+addEventListener('orientationchange',()=>setTimeout(layout,180));
+if(window.visualViewport){
+  visualViewport.addEventListener('resize',layout);
+  visualViewport.addEventListener('scroll',layout);
+}
 
 const rad=d=>d*Math.PI/180;
 function vec(lat,lng){const p=rad(lat),l=rad(lng);return{x:Math.cos(p)*Math.sin(l),y:Math.sin(p),z:Math.cos(p)*Math.cos(l)};}
@@ -684,7 +696,7 @@ function screenToLatLng(sx,sy){
 }
 const centerLatLng=()=>screenToLatLng(CX,CY);
 
-let ready=false, gl=null, glProg=null, glTex=null, glLoc={}, texW=0, texH=0;
+let ready=false, gl=null, glProg=null, glTex=null, glLoc={}, texW=0, texH=0, hasLod=false;
 let cpuTexData=null;                    // fallback only
 const img=new Image();
 
@@ -692,12 +704,11 @@ const img=new Image();
    sampled at full device resolution every frame — no quality drop while you
    drag, and the GPU's mipmapping keeps it clean at every zoom level. ---- */
 const VS=`attribute vec2 a;void main(){gl_Position=vec4(a,0.0,1.0);}`;
-const FS=`
-#extension GL_OES_standard_derivatives : enable
+const FS=`#extension GL_EXT_shader_texture_lod : enable
 precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uCenter;
-uniform float uR, uRotY, uRotX;
+uniform float uR, uRotY, uRotX, uTexW, uTexH;
 const float PI=3.141592653589793;
 void main(){
   vec2 p=gl_FragCoord.xy;
@@ -715,12 +726,22 @@ void main(){
   float lat=asin(clamp(wy,-1.0,1.0));
   float lng=atan(wx,wz);
   float v=0.5-lat/PI;
-  float u1=lng/(2.0*PI)+0.5;
-  // the wrap-around meridian makes one coordinate jump 1->0, which would blow
-  // up the mip selection and draw a seam; sample whichever coordinate is smooth
-  float u2=fract(u1+0.5);
-  vec2 uv = (fwidth(u1) < fwidth(u2)) ? vec2(u1,v) : vec2(u2-0.5,v);
-  vec3 c=texture2D(uTex,uv).rgb;
+  float u=fract(lng/(2.0*PI)+0.5);
+
+  // No branching and no screen-space derivatives. Both would go haywire at the
+  // wrap-around meridian, which is what produced the speckled grid. Instead the
+  // level of detail is derived from the geometry itself: how many texels are
+  // squeezed into a pixel, allowing for latitude and for the curve of the limb.
+  float lodX = log2( uTexW / (2.0*PI*uR) / max(cos(lat), 0.02) );
+  float lodY = log2( uTexH / (PI*uR*max(Z2, 0.02)) );
+  float lod  = max(0.0, max(lodX, lodY));
+
+  vec3 c;
+  #ifdef GL_EXT_shader_texture_lod
+    c = texture2DLodEXT(uTex, vec2(u,v), lod).rgb;
+  #else
+    c = texture2D(uTex, vec2(u,v)).rgb;
+  #endif
   gl_FragColor=vec4(c*(0.60+0.40*Z2),1.0);
 }`;
 
@@ -730,10 +751,11 @@ function compile(g,type,src){
   return s;
 }
 function initGL(){
+  hasLod=false;
   gl=texCv.getContext('webgl',{alpha:true,antialias:false,premultipliedAlpha:false})
     ||texCv.getContext('experimental-webgl');
   if(!gl) return false;
-  gl.getExtension('OES_standard_derivatives');
+  hasLod=!!gl.getExtension('EXT_shader_texture_lod');
   const vs=compile(gl,gl.VERTEX_SHADER,VS), fs=compile(gl,gl.FRAGMENT_SHADER,FS);
   if(!vs||!fs) return false;
   glProg=gl.createProgram();
@@ -747,7 +769,8 @@ function initGL(){
   gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0);
   glLoc={ center:gl.getUniformLocation(glProg,'uCenter'), R:gl.getUniformLocation(glProg,'uR'),
           rotY:gl.getUniformLocation(glProg,'uRotY'), rotX:gl.getUniformLocation(glProg,'uRotX'),
-          tex:gl.getUniformLocation(glProg,'uTex') };
+          tex:gl.getUniformLocation(glProg,'uTex'),
+          texW:gl.getUniformLocation(glProg,'uTexW'), texH:gl.getUniformLocation(glProg,'uTexH') };
   return true;
 }
 function uploadTexture(image){
@@ -767,13 +790,15 @@ function uploadTexture(image){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
-  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER, hasLod?gl.LINEAR_MIPMAP_LINEAR:gl.LINEAR);
+  if(hasLod) gl.generateMipmap(gl.TEXTURE_2D);
   // anisotropic filtering keeps detail crisp where the sphere is foreshortened
   const aniso=gl.getExtension('EXT_texture_filter_anisotropic')||gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic');
   if(aniso) gl.texParameterf(gl.TEXTURE_2D,aniso.TEXTURE_MAX_ANISOTROPY_EXT,
       Math.min(16,gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
   gl.uniform1i(glLoc.tex,0);
+  gl.uniform1f(glLoc.texW,texW);
+  gl.uniform1f(glLoc.texH,texH);
 }
 function initCPUFallback(image){
   const t=document.createElement('canvas');
@@ -1031,33 +1056,121 @@ function openPanel(i){
     dl.setAttribute('download', p.title.replace(/[^\w\-]+/g,'_').toLowerCase()+'_spectrogram.png');
     sw.style.display='block';
   } else sw.style.display='none';
+  currentPin=p;
   panel.classList.add('open');
-  buildWave(); stopPlay();
-  panel.dataset.audio=p.audio||'';
+  stopPlay();
+  drawWave(p.peaks||null, 0);
+  const st=document.getElementById('play-status');
+  const hasAudio=!!(p.audio||p.audioBlob);
+  document.getElementById('play-btn').disabled=!hasAudio;
+  document.getElementById('play-btn').style.opacity=hasAudio?'1':'.35';
+  if(st) st.textContent = hasAudio ? '' : 'No audio saved for this entry.';
+  if(hasAudio) ensurePeaks(p).then(pk=>{ if(currentPin===p) drawWave(pk,0); });
 }
 function closePanel(){ panel.classList.remove('open'); stopPlay(); }
 document.getElementById('panel-close').addEventListener('click',closePanel);
 
-function buildWave(){
-  const w=document.getElementById('waveform'); w.innerHTML='';
-  for(let i=0;i<40;i++){const b=document.createElement('span');const h=4+Math.random()*24;b.style.height=h+'px';b.dataset.b=h;w.appendChild(b);}
+const peakCache=new Map();
+
+// Draw the recording's real amplitude envelope. Bars left of the playhead
+// light up as it plays, so the animation follows the audio instead of
+// inventing movement.
+function drawWave(peaks, progress){
+  const w=document.getElementById('waveform');
+  if(!w.dataset.n || +w.dataset.n!==(peaks?peaks.length:0)){
+    w.innerHTML='';
+    const n=peaks?peaks.length:52;
+    for(let i=0;i<n;i++){
+      const b=document.createElement('span');
+      b.style.height=(peaks?Math.max(2,peaks[i]*36):3)+'px';
+      w.appendChild(b);
+    }
+    w.dataset.n=n;
+  }
+  const bars=w.children, n=bars.length;
+  const upto=Math.floor((progress||0)*n);
+  for(let i=0;i<n;i++){
+    if(peaks) bars[i].style.height=Math.max(2,peaks[i]*36)+'px';
+    bars[i].style.background = i<=upto && progress>0 ? 'var(--pin-active)' : 'var(--rule)';
+  }
 }
-let panelAudio=null;
-function startPlay(){
-  playing=true;
-  document.getElementById('play-btn').textContent='❚❚';
-  document.getElementById('waveform').classList.add('playing');
-  const src=panel.dataset.audio;
-  if(src){ panelAudio=new Audio(src); panelAudio.play().catch(()=>{}); panelAudio.onended=stopPlay; }
-  playInt=setInterval(()=>{document.querySelectorAll('#waveform span').forEach(b=>{b.style.height=(+b.dataset.b*(0.5+Math.random())).toFixed(0)+'px';});},210);
+
+// Recover the envelope for entries that don't carry one (older or remote).
+async function ensurePeaks(pin){
+  if(pin.peaks) return pin.peaks;
+  const key=pin.id||pin.audio;
+  if(peakCache.has(key)) return peakCache.get(key);
+  const src=pin.audioBlob||pin.audio;
+  if(!src) return null;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    const arr = src instanceof Blob ? await src.arrayBuffer() : await (await fetch(src)).arrayBuffer();
+    const ctx=new AC();
+    const buf=await ctx.decodeAudioData(arr);
+    ctx.close();
+    const d=buf.getChannelData(0), len=d.length, N=52, step=Math.max(1,Math.floor(len/N));
+    const p=[];
+    for(let i=0;i<N;i++){
+      let mx=0; const s0=i*step, s1=Math.min(len,s0+step);
+      for(let s=s0;s<s1;s++){ const v=Math.abs(d[s]); if(v>mx) mx=v; }
+      p.push(mx);
+    }
+    const m=Math.max(...p,1e-6);
+    const env=p.map(v=>v/m);
+    peakCache.set(key,env);
+    pin.peaks=env;
+    return env;
+  }catch(e){ return null; }
 }
+
+let panelAudio=null, rafPlay=null, currentPin=null;
+
 function stopPlay(){
   playing=false;
   document.getElementById('play-btn').textContent='▶';
-  document.getElementById('waveform').classList.remove('playing');
-  clearInterval(playInt);
-  if(panelAudio){panelAudio.pause();panelAudio=null;}
+  cancelAnimationFrame(rafPlay);
+  if(panelAudio){ panelAudio.pause(); panelAudio.currentTime=0; }
+  drawWave(currentPin&&currentPin.peaks, 0);
 }
+
+function startPlay(){
+  if(!currentPin) return;
+  // Prefer the stored blob — after a refresh, old object URLs are dead.
+  let src=currentPin.audio;
+  if(currentPin.audioBlob){
+    try{ src=URL.createObjectURL(currentPin.audioBlob); currentPin.audio=src; }catch(e){}
+  }
+  if(!src){
+    document.getElementById('play-btn').textContent='▶';
+    const st=document.getElementById('play-status');
+    if(st) st.textContent='No audio saved for this entry.';
+    return;
+  }
+  if(!panelAudio || panelAudio.dataset_src!==src){
+    panelAudio=new Audio(src);
+    panelAudio.dataset_src=src;
+    panelAudio.onended=stopPlay;
+    panelAudio.onerror=()=>{
+      const st=document.getElementById('play-status');
+      if(st) st.textContent='This recording could not be loaded.';
+      stopPlay();
+    };
+  }
+  playing=true;
+  document.getElementById('play-btn').textContent='❚❚';
+  panelAudio.play().catch(()=>{
+    const st=document.getElementById('play-status');
+    if(st) st.textContent='Tap play again to allow audio.';
+    stopPlay();
+  });
+  (function follow(){
+    if(!playing) return;
+    const d=panelAudio.duration||currentPin.dur||1;
+    drawWave(currentPin.peaks, panelAudio.currentTime/d);
+    rafPlay=requestAnimationFrame(follow);
+  })();
+}
+
 document.getElementById('play-btn').addEventListener('click',()=>playing?stopPlay():startPlay());
 
 
@@ -1070,7 +1183,7 @@ document.getElementById('play-btn').addEventListener('click',()=>playing?stopPla
 const SUPABASE_URL = 'https://uqbcoarliimdzqtweutg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxYmNvYXJsaWltZHpxdHdldXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNDg5NDIsImV4cCI6MjEwMTkyNDk0Mn0.BKr1cpgJ7q156GlbBwFy2Yp49LZ5eCaNMx-uk94lk-g';
 
-let sb=null, remote=false, backendProblem=null;
+let sb=null, remote=false, backendProblem=null, uploadTrouble=null;
 
 async function initBackend(){
   if(!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
@@ -1095,13 +1208,15 @@ async function uploadBlob(blob, ext){
   const uid = currentUser?.id || 'anon';
   const path = `${uid}/${newId()}.${ext}`;
   const { error } = await sb.storage.from('media').upload(path, blob, { upsert:false, contentType:blob.type||undefined });
-  if(error){ console.warn('upload failed', error); return null; }
+  if(error){ console.warn('upload failed for '+path, error); uploadTrouble=error.message||'upload failed'; return null; }
   return path;
 }
 async function dataURLtoBlob(d){ return d ? await (await fetch(d)).blob() : null; }
 
 // Read every public entry, plus the signed-in person's private ones.
-async function loadRemote(){
+async function loadRemote(localCache){
+  const byId={};
+  (localCache||[]).forEach(p=>{ if(p.id) byId[p.id]=p; });
   const { data, error } = await sb.from('sounds').select('*').order('created_at',{ascending:false});
   if(error){
     console.warn('Backend reachable but query failed — falling back to local storage.', error);
@@ -1123,12 +1238,20 @@ async function loadRemote(){
       user_id:row.user_id,
       mine: !!(currentUser && row.user_id===currentUser.id)
     };
+    const local=byId[row.id];
+    if(local){
+      if(local.audioBlob){ p.audioBlob=local.audioBlob; try{ p.audio=URL.createObjectURL(local.audioBlob); }catch(e){} }
+      if(!p.peaks && local.peaks) p.peaks=local.peaks;
+      if(!p.spec && local.spec) p.spec=local.spec;
+    }
     if(row.visibility==='private') privatePins.push(p); else publicPins.push(p);
   });
 }
 
 async function pushPin(pin, visibility){
-  const audio_path = pin.audio_path || await uploadBlob(pin.audioBlob,'webm');
+  const audioExt = (pin.audioBlob && pin.audioBlob.type||'').includes('mp4') ? 'm4a'
+                 : (pin.audioBlob && pin.audioBlob.type||'').includes('ogg') ? 'ogg' : 'webm';
+  const audio_path = pin.audio_path || await uploadBlob(pin.audioBlob, audioExt);
   const photo_path = pin.photo_path || await uploadBlob(await dataURLtoBlob(pin.photo),'jpg');
   const spec_path  = pin.spec_path  || await uploadBlob(await dataURLtoBlob(pin.spec),'png');
   const row={
@@ -1200,14 +1323,14 @@ function idbGet(store,k){
 // Write every entry the user has made. Counts are small, so a full rewrite is
 // simpler and safer than tracking individual changes.
 async function saveAll(){
-  if(remote){ flashSaved(); return; }   // remote writes happen per-entry
-  if(!storageOK) return;
+  if(!storageOK){ if(remote) flashSaved(); return; }
   try{
     await idbClear('pins');
     const all=[...publicPins.filter(p=>p.mine).map(p=>({...p,visibility:'public'})),
                ...privatePins.filter(p=>p.mine).map(p=>({...p,visibility:'private'}))];
     for(const p of all){
       const {audio,...rest}=p;              // object URLs die on reload; the Blob is what matters
+      // rest keeps audioBlob, peaks, spec and photo
       await idbPut('pins',rest);
     }
     await idbPut('meta',{k:'user',v:currentUser});
@@ -1324,6 +1447,19 @@ async function buildSpectrogram(blobOrUrl){
   }catch(e){ return null; }
 
   const data=buf.getChannelData(0), len=data.length;
+
+  // amplitude envelope — the real shape of the sound
+  const PEAKS=52, step=Math.max(1,Math.floor(len/PEAKS));
+  const peaks=[];
+  for(let i=0;i<PEAKS;i++){
+    let mx=0;
+    const s0=i*step, s1=Math.min(len,s0+step);
+    for(let s=s0;s<s1;s++){ const v=Math.abs(data[s]); if(v>mx) mx=v; }
+    peaks.push(mx);
+  }
+  const pkMax=Math.max(...peaks,1e-6);
+  const envelope=peaks.map(p=>p/pkMax);
+
   const COLS=420, ROWS=200, N=2048;
   const hop=Math.max(1,Math.floor((len-N)/COLS));
   const win=new Float64Array(N);
@@ -1364,7 +1500,7 @@ async function buildSpectrogram(blobOrUrl){
     }
   }
   cx.putImageData(img2,0,0);
-  return { url:cv.toDataURL('image/png'), duration:buf.duration };
+  return { url:cv.toDataURL('image/png'), duration:buf.duration, peaks:envelope };
 }
 
 function fmtDur(s){ return Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0'); }
@@ -1555,6 +1691,7 @@ function autoLocate(){
     return;
   }
   document.getElementById('loc-status').textContent='Looking for your location…';
+  document.getElementById('loc-status').style.color='';
   navigator.geolocation.getCurrentPosition(
     pos=>setLoc(pos.coords.latitude,pos.coords.longitude,'From your device'),
     ()=>{ document.getElementById('loc-status').textContent='Couldn\'t get it — place it on the globe or type it in'; },
@@ -1611,7 +1748,13 @@ document.getElementById('loc-next').addEventListener('click',()=>{
   const la=parseFloat(document.getElementById('loc-lat').value);
   const lo=parseFloat(document.getElementById('loc-lng').value);
   if(!isNaN(la)&&!isNaN(lo)&&la>=-90&&la<=90&&lo>=-180&&lo<=180) recLoc={lat:la,lng:lo};
-  if(!recLoc){ const c=centerLatLng(); if(c) recLoc=c; }
+  if(!recLoc){
+    document.getElementById('loc-status').textContent =
+      'Set a location first — use your device, place it on the globe, or type coordinates.';
+    document.getElementById('loc-status').style.color='var(--rec-red)';
+    return;
+  }
+  document.getElementById('loc-status').style.color='';
   goStep(3);
 });
 
@@ -1649,20 +1792,26 @@ document.getElementById('vis-back').addEventListener('click',()=>goStep(3));
 document.getElementById('rec-submit').addEventListener('click',()=>{
   const title=document.getElementById('rec-title').value.trim()||'Untitled recording';
   const why=document.getElementById('rec-why').value.trim()||'No description added yet.';
-  if(!recLoc){ const c=centerLatLng(); recLoc=c||{lat:0,lng:0}; }
+  if(!recLoc){ goStep(2); return; }   // never invent a location
   const pin={
     lat:recLoc.lat, lng:recLoc.lng, year:Math.min(currentYear,REAL),
     place:recLoc.lat.toFixed(2)+'°, '+recLoc.lng.toFixed(2)+'°',
     title, who: currentUser?(currentUser.name||currentUser.email):'you',
     why, tags:[recVis==='private'?'Personal memory':'Everyday'],
     photo:recPhoto, audio:recBlobUrl, audioBlob:recBlob, id:newId(), mine:true,
-    spec:recSpec?recSpec.url:null, dur:recSpec?recSpec.duration:null
+    spec:recSpec?recSpec.url:null, dur:recSpec?recSpec.duration:null,
+    peaks:recSpec?recSpec.peaks:null
   };
   if(recVis==='private'){ privatePins.push(pin); currentView='private'; }
   else { publicPins.push(pin); currentView='public'; }
   updateViewUI();
-  if(remote){ pushPin(pin, recVis).then(()=>{ flashSaved(); render(); }); }
-  else saveAll();
+  saveAll();                                   // device copy first, always
+  if(remote){
+    pushPin(pin, recVis).then(()=>{
+      if(uploadTrouble){ alert('Saved here, but the audio did not upload:\n'+uploadTrouble+'\n\nCheck the media bucket in Supabase.'); uploadTrouble=null; }
+      flashSaved(); render();
+    });
+  }
   hideModal(recModal);
   setYear(pin.year);              // make sure the year showing is the one it landed in
   // fly the globe to the new pin so it's immediately visible
@@ -1890,24 +2039,42 @@ addEventListener('pointermove',e=>{ if(!dragT)return; const r=track.getBoundingC
 addEventListener('pointerup',()=>dragT=false);
 track.addEventListener('pointerdown',e=>{ const r=track.getBoundingClientRect(); setYear(Y0+((e.clientX-r.left)/r.width)*(Y1-Y0)); });
 
+/* ---- keep pinch gestures on the globe, never on the page ---- */
+['gesturestart','gesturechange','gestureend'].forEach(ev=>{
+  document.addEventListener(ev, e=>e.preventDefault(), {passive:false});
+});
+document.addEventListener('touchmove', e=>{
+  if(e.touches.length>1) e.preventDefault();     // two-finger page zoom
+}, {passive:false});
+let lastTouchEnd=0;
+document.addEventListener('touchend', e=>{
+  const now=Date.now();
+  if(now-lastTouchEnd<300) e.preventDefault();   // double-tap zoom
+  lastTouchEnd=now;
+}, {passive:false});
+
 /* ================= INIT ================= */
 document.getElementById('storage-warn-close').addEventListener('click',()=>{
   document.getElementById('storage-warn').style.display='none';
 });
 
 (async function boot(){
+  db=await openDB();
+  storageOK=!!db;
+  let localCache=[];
+  if(storageOK){
+    try{ localCache=await idbAll('pins'); }catch(e){ storageOK=false; }
+  }
+
   const live=await initBackend();
   if(live){
     document.getElementById('acc-pass').style.display='block';
     document.getElementById('acc-pass-label').style.display='block';
-    try{ await loadRemote(); }catch(e){ console.warn(e); }
+    try{ await loadRemote(localCache); }catch(e){ console.warn(e); }
     const f=document.getElementById('save-flag'); if(f) f.textContent='Saved to Global Sounds';
   }
-  db=await openDB();
-  storageOK=!!db;
-  if(storageOK && !live){
-    try{ await loadAll(); }
-    catch(e){ storageOK=false; }
+  if(!remote && storageOK){
+    try{ await loadAll(); }catch(e){ storageOK=false; }
   }
   if(backendProblem){
     const w=document.getElementById('storage-warn');
