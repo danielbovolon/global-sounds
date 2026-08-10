@@ -221,6 +221,8 @@
     margin:4px 0 20px;
   }
   #spec-wrap{ margin-top:14px; }
+  #play-status{ font-size:11px; color:var(--rec-red); font-family:var(--serif); font-style:italic; margin-top:8px; }
+  #audio-src{ font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-top:6px; }
   #p-spec{ width:100%; height:118px; object-fit:fill; border:1px solid var(--rule); display:block; background:#05070C; }
   .spec-axis{ display:flex; justify-content:space-between; font-size:9px; letter-spacing:.08em;
               text-transform:uppercase; color:var(--text-muted); margin:6px 2px 12px; font-family:var(--sans); }
@@ -410,6 +412,8 @@
       <div id="waveform"></div>
     </div>
     <div id="play-status"></div>
+    <div id="audio-src"></div>
+    <audio id="player" playsinline preload="auto" style="display:none"></audio>
     <div id="spec-wrap" style="display:none;">
       <img id="p-spec" alt="Spectrogram of this recording">
       <div class="spec-axis"><span>low</span><span id="spec-dur">—</span><span>high</span></div>
@@ -1066,6 +1070,12 @@ function openPanel(i){
   document.getElementById('play-btn').style.opacity=hasAudio?'1':'.35';
   if(st) st.textContent = hasAudio ? '' : 'No audio saved for this entry.';
   if(hasAudio) ensurePeaks(p).then(pk=>{ if(currentPin===p) drawWave(pk,0); });
+  const src=(p.audioBlob&&p.audioBlob.size>0) ? 'on this device'
+          : (p.audio && !String(p.audio).startsWith('blob:')) ? 'from the server'
+          : null;
+  setStatus(src?'':'No audio attached to this entry.');
+  const dbg=document.getElementById('audio-src');
+  if(dbg) dbg.textContent = src ? ('Audio '+src) : '';
 }
 function closePanel(){ panel.classList.remove('open'); stopPlay(); }
 document.getElementById('panel-close').addEventListener('click',closePanel);
@@ -1123,50 +1133,86 @@ async function ensurePeaks(pin){
   }catch(e){ return null; }
 }
 
-let panelAudio=null, rafPlay=null, currentPin=null;
+let rafPlay=null, currentPin=null, curObjURL=null, audioUnlocked=false;
+const player=document.getElementById('player');
+const SILENT='data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+
+// iOS only allows audio that a real gesture has authorised. Playing a silent
+// clip on the very first touch marks the element as user-approved, so every
+// later play works without the browser refusing it.
+function unlockAudio(){
+  if(audioUnlocked) return;
+  audioUnlocked=true;
+  try{
+    player.src=SILENT;
+    const p=player.play();
+    if(p&&p.then) p.then(()=>{ player.pause(); player.currentTime=0; }).catch(()=>{});
+  }catch(e){}
+}
+['pointerdown','touchstart','click'].forEach(ev=>
+  document.addEventListener(ev, unlockAudio, {once:true, capture:true}));
+
+function setStatus(msg){
+  const st=document.getElementById('play-status');
+  if(st) st.textContent=msg||'';
+}
 
 function stopPlay(){
   playing=false;
   document.getElementById('play-btn').textContent='▶';
   cancelAnimationFrame(rafPlay);
-  if(panelAudio){ panelAudio.pause(); panelAudio.currentTime=0; }
+  try{ player.pause(); }catch(e){}
   drawWave(currentPin&&currentPin.peaks, 0);
+}
+
+function audioSourceFor(pin){
+  // A blob held on this device is the dependable source: object URLs from a
+  // previous session are dead, and a server URL may not have uploaded.
+  if(pin.audioBlob && pin.audioBlob.size>0){
+    if(curObjURL){ try{ URL.revokeObjectURL(curObjURL); }catch(e){} }
+    curObjURL=URL.createObjectURL(pin.audioBlob);
+    return curObjURL;
+  }
+  if(pin.audio && !String(pin.audio).startsWith('blob:')) return pin.audio;  // server URL
+  if(pin.audio) return pin.audio;
+  return null;
 }
 
 function startPlay(){
   if(!currentPin) return;
-  // Prefer the stored blob — after a refresh, old object URLs are dead.
-  let src=currentPin.audio;
-  if(currentPin.audioBlob){
-    try{ src=URL.createObjectURL(currentPin.audioBlob); currentPin.audio=src; }catch(e){}
-  }
+  unlockAudio();
+  const src=audioSourceFor(currentPin);
   if(!src){
-    document.getElementById('play-btn').textContent='▶';
-    const st=document.getElementById('play-status');
-    if(st) st.textContent='No audio saved for this entry.';
+    setStatus(currentPin.audioBlob&&currentPin.audioBlob.size===0
+      ? 'That recording came out empty.'
+      : 'No audio saved for this entry.');
     return;
   }
-  if(!panelAudio || panelAudio.dataset_src!==src){
-    panelAudio=new Audio(src);
-    panelAudio.dataset_src=src;
-    panelAudio.onended=stopPlay;
-    panelAudio.onerror=()=>{
-      const st=document.getElementById('play-status');
-      if(st) st.textContent='This recording could not be loaded.';
-      stopPlay();
-    };
-  }
+  setStatus('');
+  if(player.src!==src){ player.src=src; try{ player.load(); }catch(e){} }
+  player.onended=stopPlay;
+  player.onerror=()=>{
+    const e=player.error;
+    setStatus('Could not load the audio'+(e?' (code '+e.code+')':'')+'.');
+    stopPlay();
+  };
+
   playing=true;
   document.getElementById('play-btn').textContent='❚❚';
-  panelAudio.play().catch(()=>{
-    const st=document.getElementById('play-status');
-    if(st) st.textContent='Tap play again to allow audio.';
-    stopPlay();
-  });
+  const attempt=player.play();
+  if(attempt&&attempt.catch){
+    attempt.catch(err=>{
+      // Report what actually went wrong instead of a vague nudge.
+      setStatus(err&&err.name==='NotAllowedError'
+        ? 'Your browser blocked playback. Tap play once more.'
+        : 'Playback failed'+(err&&err.name?' ('+err.name+')':'')+'.');
+      stopPlay();
+    });
+  }
   (function follow(){
     if(!playing) return;
-    const d=panelAudio.duration||currentPin.dur||1;
-    drawWave(currentPin.peaks, panelAudio.currentTime/d);
+    const d=player.duration||currentPin.dur||1;
+    drawWave(currentPin.peaks, (player.currentTime||0)/d);
     rafPlay=requestAnimationFrame(follow);
   })();
 }
