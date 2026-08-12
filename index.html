@@ -162,7 +162,8 @@
   #account-summary .who small{ display:block; font-family:var(--sans); font-size:9.5px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* Globe */
-  #globe-texture, #globe-svg{ position:absolute; inset:0; width:100%; height:100%; }
+  #globe-texture, #globe-svg, #globe-tiles{ position:absolute; inset:0; width:100%; height:100%; }
+  #globe-tiles{ display:none; }
   #globe-svg{ cursor:grab; touch-action:none; }
   #globe-svg.grabbing{ cursor:grabbing; }
   #globe-svg.picking{ cursor:crosshair; }
@@ -293,6 +294,23 @@
 
   .btn{ border:1px solid var(--rule); background:none; color:var(--text-muted); padding:10px 14px; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; font-family:var(--sans); transition:border-color .2s,color .2s; }
   .btn:hover{ border-color:var(--pin-active); color:var(--pin-active); }
+  #offline-bar{
+    position:fixed; left:50%; bottom:16px; transform:translateX(-50%);
+    display:none; align-items:center; gap:12px; z-index:68;
+    background:var(--panel-bg); border:1px solid var(--rule);
+    padding:11px 16px; font-size:11.5px; font-family:var(--serif);
+    color:var(--text-primary); max-width:92vw;
+  }
+  #offline-bar button{ background:none; border:1px solid var(--rule); color:var(--text-muted);
+    font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; padding:5px 9px; cursor:pointer; font-family:var(--sans); }
+  .spin{ width:11px; height:11px; border:1.5px solid var(--rule); border-top-color:var(--pin-active);
+    border-radius:50%; animation:spin 0.9s linear infinite; flex-shrink:0; }
+  @keyframes spin{ to{ transform:rotate(360deg);} }
+  #ask-modal{ width:min(340px,90vw); z-index:70; }
+  #ask-modal .btn-row{ margin-top:22px; }
+  .ask-danger{ border-color:var(--rec-red) !important; color:var(--rec-red) !important; }
+  .ask-danger:hover{ background:rgba(217,72,59,.1); }
+  #overlay.above{ z-index:69; }
   .btn-primary{ width:100%; margin-top:22px; border:1px solid var(--pin-active); color:var(--pin-active); background:none; padding:13px; font-size:11px; letter-spacing:.13em; text-transform:uppercase; font-family:var(--serif); cursor:pointer; transition:background .2s; }
   .btn-primary:hover{ background:rgba(242,178,92,.1); }
   .btn-primary:disabled{ opacity:.35; cursor:not-allowed; }
@@ -316,6 +334,10 @@
   #rec-btn.recording .inner{ width:24px; height:24px; border-radius:4px; }
   #rec-btn.recording{ border-color:var(--rec-red); animation:recpulse 1.6s ease-in-out infinite; }
   @keyframes recpulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(217,72,59,.35);} 50%{ box-shadow:0 0 0 10px rgba(217,72,59,0);} }
+  #rec-controls{ display:flex; align-items:center; justify-content:center; gap:10px; width:100%; }
+  .rec-side{ flex:1; display:flex; justify-content:flex-start; }
+  .rec-side:last-child{ justify-content:flex-end; }
+  #rec-upload-btn{ font-size:9.5px; padding:8px 10px; letter-spacing:.06em; white-space:nowrap; }
   #rec-caption{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-top:14px; }
   #rec-playback{ display:none; width:100%; margin-top:6px; }
   #rec-error{ display:none; font-size:12px; color:var(--rec-red); font-family:var(--serif); font-style:italic; margin-top:14px; text-align:center; line-height:1.5; }
@@ -407,6 +429,9 @@
         <div class="menu-item" id="menu-contribute">Record a Sound</div>
         <div class="menu-item" id="menu-selections">My Selections <span class="soon">Soon</span></div>
         <div class="menu-divider"></div>
+        <div class="menu-item" id="menu-save-area">Save this area offline</div>
+        <div class="menu-item" id="menu-clear-tiles">Remove saved maps</div>
+        <div class="menu-divider"></div>
         <div class="menu-item" id="menu-export">Export my archive</div>
         <label class="menu-item" id="menu-import" style="cursor:pointer;">Import archive<input type="file" accept="application/json" id="import-file" hidden></label>
         <div class="menu-divider"></div>
@@ -479,7 +504,18 @@
   <button id="storage-warn-close">Dismiss</button>
 </div>
 
+<div id="offline-bar"><span class="spin"></span><span id="offline-text">Saving…</span><button id="offline-stop">Stop</button></div>
 <div id="overlay"></div>
+
+<div class="modal" id="ask-modal" role="dialog" aria-modal="true">
+  <div class="eyebrow2" id="ask-eyebrow">Are you sure?</div>
+  <h2 id="ask-title">Discard this recording?</h2>
+  <div class="note" id="ask-body"></div>
+  <div class="btn-row">
+    <button class="btn" id="ask-no">Keep editing</button>
+    <button class="btn ask-danger" id="ask-yes">Discard</button>
+  </div>
+</div>
 
 <!-- RECORD FLOW -->
 <div class="modal" id="rec-modal">
@@ -497,14 +533,19 @@
     <div id="rec-stage">
       <div id="rec-visual"></div>
       <div id="rec-timer">0:00</div>
-      <button id="rec-btn"><span class="inner"></span></button>
+      <div id="rec-controls">
+        <span class="rec-side"></span>
+        <button id="rec-btn"><span class="inner"></span></button>
+        <span class="rec-side">
+          <label class="btn" id="rec-upload-btn" title="Use a sound file instead">Use a file
+            <input type="file" accept="audio/*" id="rec-upload" hidden></label>
+        </span>
+      </div>
       <div id="rec-caption">Tap to start</div>
       <audio id="rec-playback" controls></audio>
       <div id="rec-error"></div>
       <img id="rec-spec-preview" alt="Spectrogram preview">
       <div id="spec-status"></div>
-      <label class="btn" id="rec-upload-btn" style="margin-top:16px;text-align:center;">Use a sound file instead
-        <input type="file" accept="audio/*" id="rec-upload" hidden></label>
     </div>
     <div class="btn-row" id="rec-after" style="display:none;">
       <button class="btn" id="rec-redo">Record again</button>
@@ -718,6 +759,7 @@ function layout(){
   gsvg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   gsvg.setAttribute('width',W); gsvg.setAttribute('height',H);
   render();
+  if(detailActive) scheduleTileDraw();
 }
 addEventListener('resize',layout);
 addEventListener('orientationchange',()=>setTimeout(layout,180));
@@ -767,7 +809,6 @@ precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uCenter;
 uniform float uR, uRotY, uRotX, uTexW, uTexH;
-uniform float uLngMin, uLngSpan, uLatMax, uLatSpan;
 const float PI=3.141592653589793;
 void main(){
   vec2 p=gl_FragCoord.xy;
@@ -782,24 +823,13 @@ void main(){
   float wx=nx*cY-Z1*sY;
   float wy=Y1;
   float wz=nx*sY+Z1*cY;
-  float lat=degrees(asin(clamp(wy,-1.0,1.0)));
-  float lng=degrees(atan(wx,wz));
-
-  // Bring longitude into the window's frame, allowing for wrap-around.
-  float dl = lng - uLngMin;
-  dl = mod(dl + 180.0, 360.0) - 180.0;
-  if(dl < 0.0) dl += 360.0;
-  float u = dl / uLngSpan;
-  float v = (uLatMax - lat) / uLatSpan;
-
-  // Outside the detailed window (only possible mid-transition) fade to black
-  // rather than smearing the edge pixels across the globe.
-  if(u<0.0||u>1.0||v<0.0||v>1.0){ gl_FragColor=vec4(0.02,0.05,0.09,1.0); return; }
-
-  float lodX = log2( uTexW / (radians(uLngSpan)*uR) / max(cos(radians(lat)), 0.02) );
-  float lodY = log2( uTexH / (radians(uLatSpan)*uR*max(Z2, 0.02)) );
+  float lat=asin(clamp(wy,-1.0,1.0));
+  float lng=atan(wx,wz);
+  float v=0.5-lat/PI;
+  float u=fract(lng/(2.0*PI)+0.5);
+  float lodX = log2( uTexW / (2.0*PI*uR) / max(cos(lat), 0.02) );
+  float lodY = log2( uTexH / (PI*uR*max(Z2, 0.02)) );
   float lod  = max(0.0, max(lodX, lodY));
-
   vec3 c;
   #ifdef GL_EXT_shader_texture_lod
     c = texture2DLodEXT(uTex, vec2(u,v), lod).rgb;
@@ -835,8 +865,7 @@ function initGL(){
           rotY:gl.getUniformLocation(glProg,'uRotY'), rotX:gl.getUniformLocation(glProg,'uRotX'),
           tex:gl.getUniformLocation(glProg,'uTex'),
           texW:gl.getUniformLocation(glProg,'uTexW'), texH:gl.getUniformLocation(glProg,'uTexH'),
-          lngMin:gl.getUniformLocation(glProg,'uLngMin'), lngSpan:gl.getUniformLocation(glProg,'uLngSpan'),
-          latMax:gl.getUniformLocation(glProg,'uLatMax'), latSpan:gl.getUniformLocation(glProg,'uLatSpan') };
+          };
   return true;
 }
 function uploadTexture(image){
@@ -849,6 +878,7 @@ function uploadTexture(image){
     src=c;
   }
   texW=src.width||src.naturalWidth; texH=src.height||src.naturalHeight;
+  if(glTex) gl.deleteTexture(glTex);
   glTex=gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D,glTex);
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
@@ -875,16 +905,16 @@ function initCPUFallback(image){
   texW=t.width; texH=t.height;
 }
 img.onload=()=>{
-  baseImage=img;
+  baseImage=img; baseImages[MAP_STYLES[mapStyle].base]=img;
   if(initGL()){ uploadTexture(img); }
   else { gl=null; initCPUFallback(img); }
   ready=true;
   layout();
 };
 img.onerror=()=>{
-  showFatal('Could not load earth.jpg — make sure it sits next to index.html in the repo.');
+  showFatal('Could not load the base map image — check that earth.jpg, map_terrain.jpg and map_atlas.jpg sit next to index.html.');
 };
-img.src='earth.jpg';
+// src is set in boot(), once MAP_STYLES and the saved style are known.
 
 function get2DContext(){
   if(ctx2d) return ctx2d;
@@ -912,10 +942,6 @@ function drawGlobe(){
     gl.uniform1f(glLoc.R,baseR*zoom*q);
     gl.uniform1f(glLoc.rotY,rotY);
     gl.uniform1f(glLoc.rotX,rotX);
-    gl.uniform1f(glLoc.lngMin,texWindow.lngMin);
-    gl.uniform1f(glLoc.lngSpan,texWindow.lngSpan);
-    gl.uniform1f(glLoc.latMax,texWindow.latMax);
-    gl.uniform1f(glLoc.latSpan,texWindow.latSpan);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     return;
   }
@@ -953,165 +979,371 @@ function drawGlobe(){
 
 
 /* ================= MAP DETAIL =================
-   Below a certain zoom the whole world comes from one embedded image. Past
-   that, the visible patch is rebuilt from real map tiles, so a city fills the
-   screen with genuine streets, terrain and coastline instead of a blurred
-   photograph. Tiles are standard XYZ services, fetched by the browser. */
+   Close in, the globe hands over to real map tiles drawn straight onto a 2D
+   canvas. Each tile is painted at its native resolution wherever the sphere
+   projection puts it, so detail is identical at every zoom level — there is no
+   intermediate texture to blur it, and none of WebGL's size restrictions. */
 const MAP_STYLES = {
   satellite:{
-    label:'Satellite',
+    label:'Satellite', base:'earth.jpg',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
     max:19, credit:'Imagery: Esri, Maxar, Earthstar Geographics'
   },
   terrain:{
-    label:'Terrain',
+    label:'Terrain', base:'map_terrain.jpg',
     url:(z,x,y)=>`https://tile.opentopomap.org/${z}/${x}/${y}.png`,
-    max:16, credit:'© OpenTopoMap, © OpenStreetMap contributors'
+    max:16, credit:'© OpenTopoMap · © OpenStreetMap contributors · Base: Natural Earth'
   },
   streets:{
-    label:'Streets',
+    label:'Atlas', base:'map_atlas.jpg',
     url:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
-    max:19, credit:'© OpenStreetMap contributors'
+    max:19, credit:'© OpenStreetMap contributors · Base: Natural Earth'
   }
 };
-let mapStyle = localStorage.getItem('gs-style') || 'satellite';
+let mapStyle='satellite';
+try{ mapStyle=localStorage.getItem('gs-style')||'satellite'; }catch(e){}
+if(!MAP_STYLES[mapStyle]) mapStyle='satellite';
 
-let texWindow={lngMin:-180,lngSpan:360,latMax:90,latSpan:180};
-const BASE_WINDOW={lngMin:-180,lngSpan:360,latMax:90,latSpan:180};
-const DETAIL_FROM=3.2;              // zoom at which tiles take over
-let detailActive=false, detailKey='', detailBusy=false, detailTimer=null;
-const tileCache=new Map();          // url -> Image
-const TILE_CACHE_MAX=260;
+const DETAIL_FROM=6;                 // globe below this, tiles above
+let detailActive=false;
+const tileCache=new Map();
+const TILE_MAX=400;
+let tilesPending=0;
 
-const mercY = lat => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360));
-const mercLat = y => (Math.atan(Math.sinh(y))*180)/Math.PI;
+const mercY  = lat => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360));
+const mercLat= y   => (Math.atan(Math.sinh(y))*180)/Math.PI;
 
-function visibleSpan(){
-  // Half the screen, expressed in globe radii, gives the angular radius of
-  // what's actually visible; doubling it gives the span to cover with tiles.
-  const half=Math.min(W,H)/2;
-  const s=half/(baseR*Math.max(zoom,1e-6));
-  return Math.min(120, 2*Math.asin(Math.min(1,s))*180/Math.PI);
+const tileCv=document.createElement('canvas');
+tileCv.id='globe-tiles';
+let tctx=null;
+
+function initTileCanvas(){
+  if(tctx) return;
+  const host=document.getElementById('globe-zone');
+  const svgEl=document.getElementById('globe-svg');
+  host.insertBefore(tileCv, svgEl);       // sits under the pins, over the globe
+  tctx=tileCv.getContext('2d');
 }
 
-function loadTile(url){
-  const hit=tileCache.get(url);
-  if(hit) return Promise.resolve(hit);
+
+/* ---- Tiles kept on the device ----
+   Every tile fetched is written to IndexedDB, so revisiting somewhere is
+   instant and works with no signal. A region can also be saved deliberately
+   before heading somewhere without reception. */
+function tileKey(style,z,x,y){ return `${style}/${z}/${x}/${y}`; }
+
+async function tileFromDisk(key){
+  if(!db) return null;
+  try{
+    const rec=await idbGet('tiles',key);
+    return rec && rec.b ? rec.b : null;
+  }catch(e){ return null; }
+}
+async function tileToDisk(key, blob){
+  if(!db) return;
+  try{ await idbPut('tiles',{k:key,b:blob,t:Date.now()}); }catch(e){}
+}
+
+async function countStoredTiles(){
+  if(!db) return 0;
   return new Promise(res=>{
-    const im=new Image();
-    im.crossOrigin='anonymous';
-    im.onload=()=>{
-      if(tileCache.size>TILE_CACHE_MAX){
-        const k=tileCache.keys().next().value; tileCache.delete(k);
-      }
-      tileCache.set(url,im); res(im);
-    };
-    im.onerror=()=>res(null);
-    im.src=url;
+    try{
+      const r=tx('tiles','readonly').count();
+      r.onsuccess=()=>res(r.result||0); r.onerror=()=>res(0);
+    }catch(e){ res(0); }
   });
 }
 
-const detailCv=document.createElement('canvas');
-async function buildDetail(){
-  if(detailBusy) return;
-  const c=centerLatLng();
-  if(!c) return;
-  const style=MAP_STYLES[mapStyle];
-  const span=visibleSpan();
+// Fetch a tile: memory first, then the device, then the network.
+function getTile(style,z,x,y){
+  const key=tileKey(style,z,x,y);
+  const mem=tileCache.get(key);
+  if(mem!==undefined) return mem;
 
-  // Pick the tile zoom whose pixels roughly match what's on screen.
-  const px=Math.max(W,H)*DPR;
-  let z=Math.round(Math.log2(px*360/(span*256)));
-  z=Math.max(2, Math.min(style.max, z));
-
-  const latSpan=Math.min(150, span*1.25);
-  const lngSpan=Math.min(300, span*1.25/Math.max(0.15,Math.cos(c.lat*Math.PI/180)));
-  const latMax=Math.min(85, c.lat+latSpan/2), latMin=Math.max(-85, c.lat-latSpan/2);
-  const lngMin=c.lng-lngSpan/2;
-
-  const key=[mapStyle,z,c.lat.toFixed(3),c.lng.toFixed(3),span.toFixed(2)].join('|');
-  if(key===detailKey) return;
-  detailBusy=true;
-
-  const n=Math.pow(2,z);
-  const xa=Math.floor((lngMin+180)/360*n);
-  const xb=Math.floor((lngMin+lngSpan+180)/360*n);
-  const ya=Math.floor((1-mercY(latMax)/Math.PI)/2*n);
-  const yb=Math.floor((1-mercY(latMin)/Math.PI)/2*n);
-  const cols=Math.min(10, xb-xa+1), rows=Math.min(10, yb-ya+1);
-
-  const CW=Math.min(3072, cols*256), CH=Math.min(3072, rows*256);
-  detailCv.width=CW; detailCv.height=CH;
-  const g=detailCv.getContext('2d');
-  g.fillStyle='#0b1a2b'; g.fillRect(0,0,CW,CH);
-
-  const jobs=[];
-  for(let i=0;i<cols;i++) for(let j=0;j<rows;j++){
-    const tx=((xa+i)%n+n)%n, ty=ya+j;
-    if(ty<0||ty>=n) continue;
-    jobs.push({tx,ty,url:style.url(z,tx,ty)});
+  const im=new Image();
+  im.__ready=false; im.__key=key;
+  tileCache.set(key,im);
+  if(tileCache.size>TILE_MAX){
+    const k=tileCache.keys().next().value;
+    if(k!==key) tileCache.delete(k);
   }
-  const imgs=await Promise.all(jobs.map(j=>loadTile(j.url)));
+  tilesPending++;
+  (async()=>{
+    const disk=await tileFromDisk(key);
+    if(disk){
+      im.onload=()=>{ im.__ready=true; tilesPending--; scheduleTileDraw(); };
+      im.onerror=()=>{ im.__failed=true; tilesPending--; scheduleTileDraw(); };
+      im.src=URL.createObjectURL(disk);
+      return;
+    }
+    if(!navigator.onLine){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
+    try{
+      const resp=await fetch(MAP_STYLES[style].url(z,x,y), {mode:'cors'});
+      if(!resp.ok) throw new Error('http '+resp.status);
+      const blob=await resp.blob();
+      tileToDisk(key,blob);
+      im.onload=()=>{ im.__ready=true; tilesPending--; scheduleTileDraw(); };
+      im.onerror=()=>{ im.__failed=true; tilesPending--; scheduleTileDraw(); };
+      im.src=URL.createObjectURL(blob);
+    }catch(e){
+      im.__failed=true; tilesPending--; scheduleTileDraw();
+    }
+  })();
+  return im;
+}
 
-  // Tiles are Mercator; the globe samples equirectangular. Drawing each tile as
-  // horizontal strips warps it correctly instead of stretching it.
-  const STRIPS=12;
-  jobs.forEach((j,i)=>{
-    const im=imgs[i]; if(!im) return;
-    const tLngMin=j.tx/n*360-180;
-    const tLatTop=mercLat((1-2*j.ty/n)*Math.PI);
-    const tLatBot=mercLat((1-2*(j.ty+1)/n)*Math.PI);
-    let dxRel=tLngMin-lngMin;
-    dxRel=((dxRel+180)%360+360)%360-180;
-    const dx=dxRel/lngSpan*CW;
-    const dw=(360/n)/lngSpan*CW;
-    for(let s=0;s<STRIPS;s++){
-      const f0=s/STRIPS, f1=(s+1)/STRIPS;
-      const la0=tLatTop+(tLatBot-tLatTop)*f0;
-      const la1=tLatTop+(tLatBot-tLatTop)*f1;
-      const y0=(latMax-la0)/latSpan*CH;
-      const y1=(latMax-la1)/latSpan*CH;
-      g.drawImage(im, 0, f0*im.height, im.width, Math.max(1,(f1-f0)*im.height),
-                     dx, y0, dw, Math.max(1,y1-y0));
+// Ancestor tiles already in memory stand in while sharper ones arrive, so the
+// map is never blank — it sharpens rather than appearing.
+function bestAvailable(style,z,x,y){
+  for(let dz=0; dz<=5; dz++){
+    const zz=z-dz; if(zz<0) break;
+    const xx=x>>dz, yy=y>>dz;
+    const im=tileCache.get(tileKey(style,zz,xx,yy));
+    if(im && im.__ready) return {im, z:zz, x:xx, y:yy};
+  }
+  return null;
+}
+
+
+let tileRAF=null;
+function scheduleTileDraw(){
+  if(tileRAF) return;
+  tileRAF=requestAnimationFrame(()=>{ tileRAF=null; drawTiles(); });
+}
+
+// Where on screen does this lat/lng land? Reuses the globe's own projection so
+// tiles and pins can never disagree about a position.
+function visibleBounds(){
+  let latMin=90, latMax=-90, lngMin=180, lngMax=-180, ok=false;
+  const N=5;
+  for(let i=0;i<=N;i++) for(let j=0;j<=N;j++){
+    const ll=screenToLatLng(i/N*W, j/N*H);
+    if(!ll) continue;
+    ok=true;
+    latMin=Math.min(latMin,ll.lat); latMax=Math.max(latMax,ll.lat);
+    lngMin=Math.min(lngMin,ll.lng); lngMax=Math.max(lngMax,ll.lng);
+  }
+  if(!ok) return null;
+  if(lngMax-lngMin>180) return null;      // straddling the date line: stay on the globe
+  return {latMin,latMax,lngMin,lngMax};
+}
+
+function drawTiles(){
+  if(!detailActive||!tctx) return;
+  const b=visibleBounds();
+  if(!b) return;
+  const style=MAP_STYLES[mapStyle];
+
+  const q=DPR;
+  const cw=Math.round(W*q), ch=Math.round(H*q);
+  if(tileCv.width!==cw||tileCv.height!==ch){ tileCv.width=cw; tileCv.height=ch; }
+  tctx.setTransform(q,0,0,q,0,0);
+  tctx.clearRect(0,0,W,H);
+  tctx.fillStyle='#08131f';
+  tctx.fillRect(0,0,W,H);
+
+  const spanLng=Math.max(1e-9, b.lngMax-b.lngMin);
+  let z=Math.round(Math.log2(W*q*360/(spanLng*256)));
+  z=Math.max(1, Math.min(style.max, z));
+  const n=Math.pow(2,z);
+
+  const xa=Math.floor((b.lngMin+180)/360*n);
+  const xb=Math.floor((b.lngMax+180)/360*n);
+  const ya=Math.floor((1-mercY(Math.min(85,b.latMax))/Math.PI)/2*n);
+  const yb=Math.floor((1-mercY(Math.max(-85,b.latMin))/Math.PI)/2*n);
+  if((xb-xa)>40||(yb-ya)>40) return;
+
+  const STRIPS=8;
+  let sharp=0, stale=0, waiting=false;
+
+  for(let tx=xa; tx<=xb; tx++){
+    for(let ty=ya; ty<=yb; ty++){
+      if(ty<0||ty>=n) continue;
+      const wx=((tx%n)+n)%n;
+      const want=getTile(mapStyle,z,wx,ty);
+
+      let src=null, sx0=0, sy0=0, sw=1, sh=1;
+      if(want.__ready){ src=want; sharp++; }
+      else{
+        // fall back to a coarser tile we already hold, cropped to this area
+        const alt=bestAvailable(mapStyle,z,wx,ty);
+        if(alt){
+          const dz=z-alt.z, f=Math.pow(2,dz);
+          src=alt.im;
+          sx0=(wx-alt.x*f)/f; sy0=(ty-alt.y*f)/f; sw=1/f; sh=1/f;
+          stale++;
+        } else if(!want.__failed) waiting=true;
+      }
+      if(!src) continue;
+
+      const lngL=tx/n*360-180, lngR=(tx+1)/n*360-180;
+      const latT=mercLat((1-2*ty/n)*Math.PI);
+      const latB=mercLat((1-2*(ty+1)/n)*Math.PI);
+      const iw=src.naturalWidth||256, ih=src.naturalHeight||256;
+
+      for(let s=0;s<STRIPS;s++){
+        const f0=s/STRIPS, f1=(s+1)/STRIPS;
+        const la0=latT+(latB-latT)*f0;
+        const la1=latT+(latB-latT)*f1;
+        const p00=project(la0,lngL), p11=project(la1,lngR);
+        if(!p00.visible&&!p11.visible) continue;
+        const dw=p11.x-p00.x, dh=p11.y-p00.y;
+        if(!isFinite(dw)||!isFinite(dh)||dw<=0||dh<=0) continue;
+        try{
+          tctx.drawImage(src,
+            sx0*iw, (sy0+sh*f0)*ih, sw*iw, Math.max(1, sh*(f1-f0)*ih),
+            p00.x-0.5, p00.y-0.5, dw+1, dh+1);
+        }catch(e){}
+      }
+    }
+  }
+
+  prefetchAround(mapStyle, z, xa, xb, ya, yb, n);
+
+  const cr=document.getElementById('map-credit');
+  if(cr){
+    cr.textContent = (sharp||stale) ? style.credit
+      : (waiting ? 'Loading map…'
+      : (navigator.onLine ? 'Map tiles unavailable' : 'Offline — no saved tiles for this area'));
+  }
+  if(waiting||stale) scheduleTileDraw();
+}
+
+// Warm the ring just outside the view so panning feels instant.
+let prefetchTimer=null;
+function prefetchAround(style,z,xa,xb,ya,yb,n){
+  clearTimeout(prefetchTimer);
+  prefetchTimer=setTimeout(()=>{
+    if(!navigator.onLine) return;
+    for(let tx=xa-1; tx<=xb+1; tx++){
+      for(let ty=ya-1; ty<=yb+1; ty++){
+        if(ty<0||ty>=n) continue;
+        if(tx>=xa&&tx<=xb&&ty>=ya&&ty<=yb) continue;
+        if(tilesPending>18) return;
+        getTile(style,z,((tx%n)+n)%n,ty);
+      }
+    }
+  }, 400);
+}
+
+
+/* ---- Saving a region for use without signal ---- */
+let savingArea=false;
+async function saveAreaOffline(){
+  if(savingArea) return;
+  const b=visibleBounds();
+  if(!b){ await ask('Zoom in first','Move closer to the area you want available offline, then try again.','OK','') ; return; }
+  const style=MAP_STYLES[mapStyle];
+  const spanLng=Math.max(1e-9,b.lngMax-b.lngMin);
+  let z0=Math.round(Math.log2(W*DPR*360/(spanLng*256)));
+  z0=Math.max(1,Math.min(style.max,z0));
+
+  // current level plus three deeper, which is what you actually pan around in
+  const levels=[];
+  for(let z=Math.max(1,z0-1); z<=Math.min(style.max,z0+2); z++) levels.push(z);
+
+  let total=0;
+  const jobs=[];
+  levels.forEach(z=>{
+    const n=Math.pow(2,z);
+    const xa=Math.floor((b.lngMin+180)/360*n), xb=Math.floor((b.lngMax+180)/360*n);
+    const ya=Math.floor((1-mercY(Math.min(85,b.latMax))/Math.PI)/2*n);
+    const yb=Math.floor((1-mercY(Math.max(-85,b.latMin))/Math.PI)/2*n);
+    for(let x=xa;x<=xb;x++) for(let y=ya;y<=yb;y++){
+      if(y<0||y>=n) continue;
+      jobs.push({z,x:((x%n)+n)%n,y});
+      total++;
     }
   });
 
-  if(gl){
-    uploadTexture(detailCv);
-    texWindow={lngMin, lngSpan, latMax, latSpan};
-    detailActive=true; detailKey=key;
-    const cr=document.getElementById('map-credit');
-    if(cr) cr.textContent=style.credit;
-    render();
+  if(total>1200){
+    const ok=await ask('That is a large area',
+      `Saving it would need about ${total} map tiles. Zoom in a little to keep it manageable.`,'Save anyway','Cancel');
+    if(!ok) return;
+  }else{
+    const ok=await ask('Save this area for offline use?',
+      `About ${total} map tiles (roughly ${Math.round(total*22/1024*10)/10} MB) will be kept on this device, so this area works with no signal.`,
+      'Save','Cancel');
+    if(!ok) return;
   }
-  detailBusy=false;
+
+  savingArea=true;
+  const bar=document.getElementById('offline-bar');
+  const txt=document.getElementById('offline-text');
+  bar.style.display='flex';
+  let done=0, failed=0;
+  const BATCH=6;
+  for(let i=0;i<jobs.length;i+=BATCH){
+    if(!savingArea) break;
+    await Promise.all(jobs.slice(i,i+BATCH).map(async j=>{
+      const key=tileKey(mapStyle,j.z,j.x,j.y);
+      if(await tileFromDisk(key)){ done++; return; }
+      try{
+        const resp=await fetch(style.url(j.z,j.x,j.y),{mode:'cors'});
+        if(!resp.ok) throw 0;
+        await tileToDisk(key, await resp.blob());
+        done++;
+      }catch(e){ failed++; }
+    }));
+    txt.textContent=`Saving this area — ${done} of ${total}`;
+  }
+  savingArea=false;
+  bar.style.display='none';
+  const stored=await countStoredTiles();
+  await ask('Area saved',
+    failed ? `${done} tiles saved, ${failed} could not be fetched. ${stored} tiles are stored in total.`
+           : `${done} tiles saved. ${stored} tiles are stored in total, ready to use offline.`,
+    'Good','');
 }
 
-function restoreBaseMap(){
-  if(!detailActive) return;
-  detailActive=false; detailKey='';
+async function clearOfflineTiles(){
+  const stored=await countStoredTiles();
+  const ok=await ask('Remove saved maps?',
+    `${stored} stored map tiles will be deleted. Your recordings are not affected.`,'Delete','Cancel');
+  if(!ok) return;
+  await idbClear('tiles');
+  tileCache.clear();
+  if(detailActive) drawTiles();
+  await ask('Saved maps removed','Map detail will be fetched again when you have a connection.','OK','');
+}
+
+function setDetail(on){
+  if(on===detailActive) return;
+  detailActive=on;
+  initTileCanvas();
+  tileCv.style.display=on?'block':'none';
+  texCv.style.display=on?'none':'block';
   const cr=document.getElementById('map-credit');
-  if(cr) cr.textContent='';
-  if(gl && baseImage) uploadTexture(baseImage);
-  texWindow={...BASE_WINDOW};
-  render();
+  if(cr&&!on) cr.textContent='';
+  if(on) drawTiles();
 }
 
 function updateDetail(){
-  clearTimeout(detailTimer);
-  if(zoom<DETAIL_FROM){ restoreBaseMap(); return; }
-  detailTimer=setTimeout(()=>{ buildDetail().catch(e=>console.warn('tiles',e)); }, 200);
+  setDetail(zoom>=DETAIL_FROM);
+  if(detailActive) scheduleTileDraw();
 }
 
+const baseImages={};
+function loadBaseTexture(style){
+  const file=MAP_STYLES[style].base;
+  if(baseImages[file]){ applyBase(baseImages[file]); return; }
+  const im=new Image();
+  im.onload=()=>{ baseImages[file]=im; if(mapStyle===style) applyBase(im); };
+  im.onerror=()=>console.warn('base map missing:',file);
+  im.src=file;
+}
+function applyBase(im){
+  baseImage=im;
+  if(gl && ready){ uploadTexture(im); render(); }
+}
 function setMapStyle(s){
+  if(!MAP_STYLES[s]) return;
   mapStyle=s;
   try{ localStorage.setItem('gs-style',s); }catch(e){}
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===s));
-  const cr=document.getElementById('map-credit');
-  if(cr) cr.textContent=detailActive?MAP_STYLES[s].credit:'';
-  detailKey='';
-  if(zoom>=DETAIL_FROM) buildDetail();
+  loadBaseTexture(s);          // the globe reflects the choice immediately
+  if(detailActive) drawTiles();
 }
 
 // A fixed vocabulary keeps the archive browsable as it grows — free text
@@ -1122,28 +1354,28 @@ const TAG_VOCAB=['Voice','Water','Wind','Birds','Traffic','Machinery','Footsteps
 const MAX_TAGS=3;
 
 function renderTagPicker(container, selected, onChange){
+  if(!container) return;
   container.innerHTML=TAG_VOCAB.map(t=>
     `<button type="button" class="tag-opt${selected.includes(t)?' on':''}" data-tag="${t}">${t}</button>`).join('');
+  const refresh=()=>{
+    const atMax=selected.length>=MAX_TAGS;
+    container.querySelectorAll('.tag-opt').forEach(x=>{
+      const on=selected.includes(x.getAttribute('data-tag'));
+      x.classList.toggle('on',on);
+      x.classList.toggle('dim', atMax && !on);
+    });
+  };
   container.querySelectorAll('.tag-opt').forEach(b=>{
     b.addEventListener('click',()=>{
       const t=b.getAttribute('data-tag');
       const i=selected.indexOf(t);
       if(i>-1) selected.splice(i,1);
-      else{
-        if(selected.length>=MAX_TAGS) return;
-        selected.push(t);
-      }
-      container.querySelectorAll('.tag-opt').forEach(x=>
-        x.classList.toggle('on', selected.includes(x.getAttribute('data-tag'))));
-      const atMax=selected.length>=MAX_TAGS;
-      container.querySelectorAll('.tag-opt').forEach(x=>
-        x.classList.toggle('dim', atMax && !selected.includes(x.getAttribute('data-tag'))));
+      else{ if(selected.length>=MAX_TAGS) return; selected.push(t); }
+      refresh();
       if(onChange) onChange(selected);
     });
   });
-  const atMax=selected.length>=MAX_TAGS;
-  container.querySelectorAll('.tag-opt').forEach(x=>
-    x.classList.toggle('dim', atMax && !selected.includes(x.getAttribute('data-tag'))));
+  refresh();
 }
 
 let currentYear=2026;
@@ -1363,7 +1595,9 @@ function openPanel(i){
   const src=(p.audioBlob&&p.audioBlob.size>0) ? 'on this device'
           : (p.audio && !String(p.audio).startsWith('blob:')) ? 'from the server'
           : null;
-  setStatus(src?'':'No audio attached to this entry.');
+  setStatus(src ? '' : (p.audioLost
+    ? 'The audio for this entry was lost by an earlier version and can\'t be recovered.'
+    : 'No audio attached to this entry.'));
   const dbg=document.getElementById('audio-src');
   if(dbg) dbg.textContent = src ? ('Audio '+src) : '';
 }
@@ -1611,6 +1845,7 @@ async function loadRemote(localCache){
       if(local.audioBytes||local.audioBlob){
         p.audioBytes=local.audioBytes; p.audioType=local.audioType; p.audioBlob=local.audioBlob;
         rehydrateAudio(p);
+    if(!p.audioBytes && p.audioBlob) legacyQueue.push(p);
       }
       if(!p.peaks && local.peaks) p.peaks=local.peaks;
       if(!p.spec && local.spec) p.spec=local.spec;
@@ -1658,7 +1893,7 @@ async function removePin(pin){
    Recordings are kept in IndexedDB on this device — audio is stored as a real
    Blob (not a string), so a full-length recording survives a refresh. Nothing
    is uploaded anywhere; this is your machine only. */
-const DB_NAME='commons-db', DB_VER=1;
+const DB_NAME='commons-db', DB_VER=2;
 let db=null, storageOK=false;
 
 function openDB(){
@@ -1669,6 +1904,7 @@ function openDB(){
       const d=e.target.result;
       if(!d.objectStoreNames.contains('pins')) d.createObjectStore('pins',{keyPath:'id'});
       if(!d.objectStoreNames.contains('meta')) d.createObjectStore('meta',{keyPath:'k'});
+      if(!d.objectStoreNames.contains('tiles')) d.createObjectStore('tiles',{keyPath:'k'});
     };
     req.onsuccess=e=>res(e.target.result);
     req.onerror=()=>res(null);
@@ -1741,11 +1977,33 @@ function rehydrateAudio(p){
   }catch(e){ console.warn('rehydrate failed', e); }
 }
 
+// Recordings saved before the storage fix were kept as Blobs, which Safari
+// can't always read back. Try to recover the bytes; if they're truly gone,
+// mark the entry so the panel can say so plainly instead of failing silently.
+async function migrateLegacyAudio(p){
+  if(p.audioBytes && p.audioBytes.byteLength>0) return false;
+  if(!p.audioBlob) return false;
+  try{
+    const bytes=await blobBytes(p.audioBlob);
+    if(bytes && bytes.byteLength>0){
+      p.audioBytes=bytes;
+      p.audioType=p.audioType||p.audioBlob.type||'audio/mp4';
+      rehydrateAudio(p);
+    if(!p.audioBytes && p.audioBlob) legacyQueue.push(p);
+      return true;                       // recovered
+    }
+  }catch(e){}
+  p.audioLost=true;
+  return false;
+}
+
+let legacyQueue=[];
 async function loadAll(){
   if(!storageOK) return;
   const rows=await idbAll('pins');
   rows.forEach(p=>{
     rehydrateAudio(p);
+    if(!p.audioBytes && p.audioBlob) legacyQueue.push(p);
     if(p.visibility==='private') privatePins.push(p); else publicPins.push(p);
   });
   const m=await idbGet('meta','user');
@@ -1798,6 +2056,7 @@ async function importArchive(file){
         p.audioBytes=await blobBytes(b);
         p.audioType=e.audioType||b.type||'audio/mp4';
         rehydrateAudio(p);
+    if(!p.audioBytes && p.audioBlob) legacyQueue.push(p);
       }
       delete p.audioData;
       p.id = p.id || newId();
@@ -1938,6 +2197,7 @@ function showModal(m){ overlay.classList.add('open'); m.classList.add('open'); }
 function hideModal(m){ m.classList.remove('open'); if(!document.querySelector('.modal.open')) overlay.classList.remove('open'); }
 overlay.addEventListener('click',()=>{
   if(pickingLocation) return;
+  if(askModal.classList.contains('open')) return;   // must be answered explicitly
   // The record flow holds work that isn't saved yet, so a stray tap outside
   // must not throw it away. Everything else can close freely.
   if(recModal.classList.contains('open')) return;
@@ -1982,11 +2242,18 @@ function openRecordFlow(){
   showModal(recModal);
 }
 document.getElementById('contribute-btn').addEventListener('click',openRecordFlow);
-function confirmDiscard(){
+async function confirmDiscard(){
   const hasWork = recBlob || recPhoto || recLoc ||
     document.getElementById('rec-title').value.trim() ||
     document.getElementById('rec-why').value.trim();
-  if(hasWork && !confirm('Discard this recording and close?')) return;
+  if(hasWork){
+    const step4=document.querySelector('[data-step="4"]');
+    const ok=await ask('Discard this recording?',
+      recBlob ? 'The sound you just recorded will not be saved.'
+              : 'What you have entered so far will be lost.',
+      'Discard','Keep editing');
+    if(!ok) return;
+  }
   stopRecording(true);
   hideModal(recModal);
 }
@@ -2332,6 +2599,30 @@ function updateAccount(){
 /* ================= EDIT AN ENTRY ================= */
 const editModal=document.getElementById('edit-modal');
 const clusterModal=document.getElementById('cluster-modal');
+const askModal=document.getElementById('ask-modal');
+
+// Replaces window.confirm so the question looks like part of the app rather
+// than a browser alert, and so it can't be styled away by the OS.
+let askResolve=null;
+function ask(title, body, confirmLabel, cancelLabel){
+  document.getElementById('ask-title').textContent=title;
+  document.getElementById('ask-body').textContent=body||'';
+  document.getElementById('ask-yes').textContent=confirmLabel||'Discard';
+  const noBtn=document.getElementById('ask-no');
+  noBtn.textContent=cancelLabel||'Keep editing';
+  noBtn.style.display=cancelLabel===''?'none':'';
+  overlay.classList.add('open','above');
+  askModal.classList.add('open');
+  return new Promise(res=>{ askResolve=res; });
+}
+function closeAsk(v){
+  askModal.classList.remove('open');
+  overlay.classList.remove('above');
+  if(!document.querySelector('.modal.open')) overlay.classList.remove('open');
+  if(askResolve){ const r=askResolve; askResolve=null; r(v); }
+}
+document.getElementById('ask-yes').addEventListener('click',()=>closeAsk(true));
+document.getElementById('ask-no').addEventListener('click',()=>closeAsk(false));
 const aboutModal=document.getElementById('about-modal');
 let editPin=null, editFromView='public', editPhoto=null, editVis='public', editLoc=null;
 
@@ -2409,9 +2700,10 @@ document.getElementById('edit-save').addEventListener('click',()=>{
   editPin=null;
 });
 
-document.getElementById('edit-delete').addEventListener('click',()=>{
+document.getElementById('edit-delete').addEventListener('click',async ()=>{
   if(!editPin) return;
-  if(!confirm('Delete this entry? This cannot be undone.')) return;
+  const ok=await ask('Delete this entry?','This removes the recording for good. It cannot be undone.','Delete','Cancel');
+  if(!ok) return;
   const arr = editFromView==='private'?privatePins:publicPins;
   const gone=editPin;
   const idx=arr.indexOf(editPin);
@@ -2458,6 +2750,9 @@ document.getElementById('menu-account').addEventListener('click',()=>{
 document.getElementById('menu-about').addEventListener('click',()=>{closeMenu();openAbout();});
 document.querySelectorAll('[data-style]').forEach(b=>
   b.addEventListener('click',e=>{ e.stopPropagation(); setMapStyle(b.getAttribute('data-style')); }));
+document.getElementById('menu-save-area').addEventListener('click',()=>{ closeMenu(); saveAreaOffline(); });
+document.getElementById('menu-clear-tiles').addEventListener('click',()=>{ closeMenu(); clearOfflineTiles(); });
+document.getElementById('offline-stop').addEventListener('click',()=>{ savingArea=false; });
 document.getElementById('menu-export').addEventListener('click',()=>{
   closeMenu();
   const mine=[...publicPins,...privatePins].filter(p=>p.mine).length;
@@ -2470,6 +2765,7 @@ document.getElementById('import-file').addEventListener('change',e=>{
 });
 
 addEventListener('keydown',e=>{ if(e.key==='Escape'){
+    if(askModal.classList.contains('open')){ closeAsk(false); return; }
     closePanel(); closeMenu();
     if(pickingLocation){ endPick(); return; }
     if(recModal.classList.contains('open')){ confirmDiscard(); return; }
@@ -2518,6 +2814,9 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
 
 (async function boot(){
  try{
+  img.src=(MAP_STYLES[mapStyle]&&MAP_STYLES[mapStyle].base)||'earth.jpg';
+  document.querySelectorAll('[data-style]').forEach(el=>
+    el.classList.toggle('active', el.getAttribute('data-style')===mapStyle));
   db=await openDB();
   storageOK=!!db;
   let localCache=[];
@@ -2553,6 +2852,14 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
   layout();
   setYear(new Date().getFullYear());
   updateViewUI();
+
+  if(legacyQueue.length){
+    let recovered=0;
+    for(const p of legacyQueue){ if(await migrateLegacyAudio(p)) recovered++; }
+    legacyQueue=[];
+    if(recovered) await saveAll();
+    render();
+  }
  }catch(err){
    showFatal('startup: '+(err&&err.message||err));
    // get the globe on screen regardless of what failed above
