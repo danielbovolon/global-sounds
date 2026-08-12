@@ -140,6 +140,20 @@
   }
   .menu-item:hover{ background:rgba(242,178,92,.08); color:var(--pin-active); }
   .menu-item.active{ color:var(--pin-active); }
+  .menu-sub{ font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--text-muted); padding:4px 18px 6px; }
+  .style-row{ display:flex; gap:6px; padding:0 14px 8px; }
+  .style-btn{
+    flex:1; background:none; border:1px solid var(--rule); color:var(--text-muted);
+    padding:8px 4px; font-size:9.5px; letter-spacing:.06em; text-transform:uppercase;
+    cursor:pointer; font-family:var(--sans); transition:border-color .2s,color .2s;
+  }
+  .style-btn:hover{ border-color:var(--pin-active); color:var(--pin-active); }
+  .style-btn.active{ border-color:var(--pin-active); color:var(--pin-active); background:rgba(242,178,92,.1); }
+  #map-credit{
+    position:absolute; left:10px; bottom:8px; font-size:8.5px; color:rgba(237,232,221,.45);
+    font-family:var(--sans); pointer-events:none; text-shadow:0 1px 2px rgba(0,0,0,.8);
+    max-width:70%; line-height:1.3;
+  }
   .menu-divider{ border-top:1px solid var(--rule); margin:6px 18px; }
   .soon{ font-size:8px; letter-spacing:.06em; color:var(--text-muted); border:1px solid var(--rule); padding:2px 5px; font-family:var(--sans); }
   #account-summary{ display:none; align-items:center; gap:10px; padding:2px 18px 10px; }
@@ -204,8 +218,9 @@
     padding:28px 26px; display:flex; flex-direction:column; z-index:45; overflow-y:auto;
   }
   #panel.open{ transform:translateX(0); }
-  #panel .close{ align-self:flex-end; background:none; border:none; color:var(--text-muted); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; margin-bottom:14px; }
-  #panel .close:hover{ color:var(--text-primary); }
+  #panel .close{ position:absolute; top:14px; right:14px; }
+  #panel{ padding-top:56px; }
+  #panel .eyebrow2, #panel h2{ padding-right:34px; }
   #p-photo{ width:100%; height:150px; object-fit:cover; border:1px solid var(--rule); margin-bottom:18px; display:none; }
   .eyebrow2{ font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--time-accent); margin-bottom:8px; }
   #panel h2{ font-family:var(--serif); font-weight:500; font-size:24px; margin:0 0 4px; line-height:1.22; }
@@ -243,18 +258,32 @@
   #overlay.open{ opacity:1; pointer-events:auto; }
   .modal{
     position:fixed; top:50%; left:50%; transform:translate(-50%,-46%);
+    padding-top:22px;
     width:min(400px,92vw); max-height:88vh; overflow-y:auto;
     background:var(--panel-bg); border:1px solid var(--rule);
     box-shadow:0 24px 60px rgba(0,0,0,.55); padding:28px 26px;
     opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:50;
   }
   .modal.open{ opacity:1; pointer-events:auto; transform:translate(-50%,-50%); }
-  .modal .close{ position:absolute; top:14px; right:16px; background:none; border:none; color:var(--text-muted); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; }
-  .modal .close:hover{ color:var(--text-primary); }
+  .close{
+    position:absolute; top:12px; right:12px;
+    width:34px; height:34px; padding:0;
+    background:none; border:1px solid transparent; border-radius:50%;
+    color:var(--text-muted); cursor:pointer; font-size:0; line-height:0;
+    display:flex; align-items:center; justify-content:center;
+    transition:color .2s, border-color .2s;
+    z-index:5;
+  }
+  .close::before{
+    content:'\00D7'; font-size:22px; line-height:1;
+    font-family:var(--sans); font-weight:300;
+  }
+  .close:hover{ color:var(--text-primary); border-color:var(--rule); }
+  .modal h2, .modal .eyebrow2{ padding-right:38px; }
   .modal h2{ font-family:var(--serif); font-weight:500; font-size:23px; margin:0 0 6px; }
   .note{ font-size:12px; line-height:1.5; color:var(--text-muted); font-family:var(--serif); font-style:italic; }
 
-  .steps{ display:flex; gap:6px; margin-bottom:20px; }
+  .steps{ display:flex; gap:6px; margin:26px 0 20px; }
   .step-dot{ flex:1; height:2px; background:var(--rule); }
   .step-dot.done{ background:var(--pin-active); }
 
@@ -306,6 +335,16 @@
   .loc-status{ font-size:11px; color:var(--text-muted); font-family:var(--serif); font-style:italic; }
 
   #cluster-list{ margin-top:16px; }
+  .tag-grid{ display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
+  .tag-opt{
+    background:none; border:1px solid var(--rule); color:var(--text-muted);
+    padding:7px 11px; font-size:10.5px; letter-spacing:.04em; cursor:pointer;
+    font-family:var(--sans); transition:all .18s;
+  }
+  .tag-opt:hover{ border-color:var(--pin-active); color:var(--pin-active); }
+  .tag-opt.on{ border-color:var(--pin-active); color:var(--pin-active); background:rgba(242,178,92,.12); }
+  .tag-opt.dim{ opacity:.32; }
+  .tag-count{ font-size:9.5px; color:var(--text-muted); margin-top:8px; font-family:var(--sans); letter-spacing:.06em; }
   .cl-item{ border:1px solid var(--rule); padding:12px 14px; margin-bottom:8px; cursor:pointer; transition:border-color .2s; }
   .cl-item:hover{ border-color:var(--pin-active); }
   .cl-title{ font-family:var(--serif); font-size:15px; }
@@ -373,6 +412,13 @@
         <div class="menu-divider"></div>
         <div class="menu-item" id="menu-account">Sign In</div>
         <div class="menu-item" id="menu-about">About</div>
+        <div class="menu-divider"></div>
+        <div class="menu-sub">Map</div>
+        <div class="style-row">
+          <button class="style-btn" data-style="satellite">Satellite</button>
+          <button class="style-btn" data-style="terrain">Terrain</button>
+          <button class="style-btn" data-style="streets">Streets</button>
+        </div>
       </div>
     </div>
   </div>
@@ -380,6 +426,7 @@
   <div id="globe-zone">
     <canvas id="globe-texture"></canvas>
     <svg id="globe-svg"></svg>
+    <div id="map-credit"></div>
     <div id="pick-banner">
       <span id="pick-msg">Turn the globe, then tap where this sound belongs</span>
       <button id="pick-confirm" style="display:none;">Confirm</button>
@@ -401,7 +448,7 @@
 </div>
 
 <div id="panel">
-  <button class="close" id="panel-close">Close ×</button>
+  <button class="close" id="panel-close"></button>
   <div class="eyebrow2" id="p-eyebrow"></div>
   <h2 id="p-title"></h2>
   <div class="meta" id="p-meta"></div>
@@ -436,7 +483,7 @@
 
 <!-- RECORD FLOW -->
 <div class="modal" id="rec-modal">
-  <button class="close" id="rec-close">Close ×</button>
+  <button class="close" id="rec-close" aria-label="Close"></button>
   <div class="steps">
     <div class="step-dot done" data-s="1"></div>
     <div class="step-dot" data-s="2"></div>
@@ -496,6 +543,9 @@
     <input class="input" id="rec-title" placeholder="Courtyard, early morning">
     <label class="field-label">Why it matters</label>
     <textarea class="input" id="rec-why" rows="3" placeholder="One or two sentences…"></textarea>
+    <label class="field-label">Describe it — up to three</label>
+    <div class="tag-grid" id="rec-tags"></div>
+    <div class="tag-count" id="rec-tag-count"></div>
     <label class="field-label">Photo (optional)</label>
     <div class="photo-row">
       <div class="photo-preview" id="photo-preview">None</div>
@@ -528,7 +578,7 @@
 
 <!-- CLUSTER LIST -->
 <div class="modal" id="cluster-modal">
-  <button class="close" id="cluster-close">Close ×</button>
+  <button class="close" id="cluster-close"></button>
   <div class="eyebrow2" id="cluster-count"></div>
   <h2>In this spot</h2>
   <div id="cluster-list"></div>
@@ -536,13 +586,16 @@
 
 <!-- EDIT ENTRY -->
 <div class="modal" id="edit-modal">
-  <button class="close" id="edit-close">Close ×</button>
+  <button class="close" id="edit-close"></button>
   <div class="eyebrow2">Your entry</div>
   <h2>Edit this recording</h2>
   <label class="field-label">Title</label>
   <input class="input" id="edit-title">
   <label class="field-label">Why it matters</label>
   <textarea class="input" id="edit-why" rows="3"></textarea>
+  <label class="field-label">Describe it — up to three</label>
+  <div class="tag-grid" id="edit-tags"></div>
+  <div class="tag-count" id="edit-tag-count"></div>
   <label class="field-label">Photo</label>
   <div class="photo-row">
     <div class="photo-preview" id="edit-photo-preview">None</div>
@@ -569,7 +622,7 @@
 
 <!-- ABOUT -->
 <div class="modal" id="about-modal">
-  <button class="close" id="about-close">Close ×</button>
+  <button class="close" id="about-close"></button>
   <div class="eyebrow2">About</div>
   <h2>Global Sounds</h2>
   <p class="about-p">An open map of the world's sounds — contributed by anyone, curated by us.</p>
@@ -586,7 +639,7 @@
 
 <!-- ACCOUNT -->
 <div class="modal" id="acc-modal">
-  <button class="close" id="acc-close">Close ×</button>
+  <button class="close" id="acc-close"></button>
   <div class="eyebrow2">Global Sounds Account</div>
   <h2>Sign in or create an account</h2>
   <div class="note">Only needed for your private archive. Contributing never requires one.</div>
@@ -654,7 +707,7 @@ let ctx2d=null;
 const gsvg=document.getElementById('globe-svg');
 
 let rotY=0.4, rotX=-0.15, zoom=1;
-const ZMIN=0.75, ZMAX=14;
+const ZMIN=0.75, ZMAX=40000;
 let W=0,H=0,CX=0,CY=0,baseR=0;
 const DPR=Math.min(window.devicePixelRatio||1,3);
 
@@ -714,6 +767,7 @@ precision highp float;
 uniform sampler2D uTex;
 uniform vec2 uCenter;
 uniform float uR, uRotY, uRotX, uTexW, uTexH;
+uniform float uLngMin, uLngSpan, uLatMax, uLatSpan;
 const float PI=3.141592653589793;
 void main(){
   vec2 p=gl_FragCoord.xy;
@@ -728,17 +782,22 @@ void main(){
   float wx=nx*cY-Z1*sY;
   float wy=Y1;
   float wz=nx*sY+Z1*cY;
-  float lat=asin(clamp(wy,-1.0,1.0));
-  float lng=atan(wx,wz);
-  float v=0.5-lat/PI;
-  float u=fract(lng/(2.0*PI)+0.5);
+  float lat=degrees(asin(clamp(wy,-1.0,1.0)));
+  float lng=degrees(atan(wx,wz));
 
-  // No branching and no screen-space derivatives. Both would go haywire at the
-  // wrap-around meridian, which is what produced the speckled grid. Instead the
-  // level of detail is derived from the geometry itself: how many texels are
-  // squeezed into a pixel, allowing for latitude and for the curve of the limb.
-  float lodX = log2( uTexW / (2.0*PI*uR) / max(cos(lat), 0.02) );
-  float lodY = log2( uTexH / (PI*uR*max(Z2, 0.02)) );
+  // Bring longitude into the window's frame, allowing for wrap-around.
+  float dl = lng - uLngMin;
+  dl = mod(dl + 180.0, 360.0) - 180.0;
+  if(dl < 0.0) dl += 360.0;
+  float u = dl / uLngSpan;
+  float v = (uLatMax - lat) / uLatSpan;
+
+  // Outside the detailed window (only possible mid-transition) fade to black
+  // rather than smearing the edge pixels across the globe.
+  if(u<0.0||u>1.0||v<0.0||v>1.0){ gl_FragColor=vec4(0.02,0.05,0.09,1.0); return; }
+
+  float lodX = log2( uTexW / (radians(uLngSpan)*uR) / max(cos(radians(lat)), 0.02) );
+  float lodY = log2( uTexH / (radians(uLatSpan)*uR*max(Z2, 0.02)) );
   float lod  = max(0.0, max(lodX, lodY));
 
   vec3 c;
@@ -775,7 +834,9 @@ function initGL(){
   glLoc={ center:gl.getUniformLocation(glProg,'uCenter'), R:gl.getUniformLocation(glProg,'uR'),
           rotY:gl.getUniformLocation(glProg,'uRotY'), rotX:gl.getUniformLocation(glProg,'uRotX'),
           tex:gl.getUniformLocation(glProg,'uTex'),
-          texW:gl.getUniformLocation(glProg,'uTexW'), texH:gl.getUniformLocation(glProg,'uTexH') };
+          texW:gl.getUniformLocation(glProg,'uTexW'), texH:gl.getUniformLocation(glProg,'uTexH'),
+          lngMin:gl.getUniformLocation(glProg,'uLngMin'), lngSpan:gl.getUniformLocation(glProg,'uLngSpan'),
+          latMax:gl.getUniformLocation(glProg,'uLatMax'), latSpan:gl.getUniformLocation(glProg,'uLatSpan') };
   return true;
 }
 function uploadTexture(image){
@@ -814,6 +875,7 @@ function initCPUFallback(image){
   texW=t.width; texH=t.height;
 }
 img.onload=()=>{
+  baseImage=img;
   if(initGL()){ uploadTexture(img); }
   else { gl=null; initCPUFallback(img); }
   ready=true;
@@ -850,6 +912,10 @@ function drawGlobe(){
     gl.uniform1f(glLoc.R,baseR*zoom*q);
     gl.uniform1f(glLoc.rotY,rotY);
     gl.uniform1f(glLoc.rotX,rotX);
+    gl.uniform1f(glLoc.lngMin,texWindow.lngMin);
+    gl.uniform1f(glLoc.lngSpan,texWindow.lngSpan);
+    gl.uniform1f(glLoc.latMax,texWindow.latMax);
+    gl.uniform1f(glLoc.latSpan,texWindow.latSpan);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     return;
   }
@@ -885,6 +951,201 @@ function drawGlobe(){
   ctx2.putImageData(out,0,0);
 }
 
+
+/* ================= MAP DETAIL =================
+   Below a certain zoom the whole world comes from one embedded image. Past
+   that, the visible patch is rebuilt from real map tiles, so a city fills the
+   screen with genuine streets, terrain and coastline instead of a blurred
+   photograph. Tiles are standard XYZ services, fetched by the browser. */
+const MAP_STYLES = {
+  satellite:{
+    label:'Satellite',
+    url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+    max:19, credit:'Imagery: Esri, Maxar, Earthstar Geographics'
+  },
+  terrain:{
+    label:'Terrain',
+    url:(z,x,y)=>`https://tile.opentopomap.org/${z}/${x}/${y}.png`,
+    max:16, credit:'© OpenTopoMap, © OpenStreetMap contributors'
+  },
+  streets:{
+    label:'Streets',
+    url:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
+    max:19, credit:'© OpenStreetMap contributors'
+  }
+};
+let mapStyle = localStorage.getItem('gs-style') || 'satellite';
+
+let texWindow={lngMin:-180,lngSpan:360,latMax:90,latSpan:180};
+const BASE_WINDOW={lngMin:-180,lngSpan:360,latMax:90,latSpan:180};
+const DETAIL_FROM=3.2;              // zoom at which tiles take over
+let detailActive=false, detailKey='', detailBusy=false, detailTimer=null;
+const tileCache=new Map();          // url -> Image
+const TILE_CACHE_MAX=260;
+
+const mercY = lat => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360));
+const mercLat = y => (Math.atan(Math.sinh(y))*180)/Math.PI;
+
+function visibleSpan(){
+  // Half the screen, expressed in globe radii, gives the angular radius of
+  // what's actually visible; doubling it gives the span to cover with tiles.
+  const half=Math.min(W,H)/2;
+  const s=half/(baseR*Math.max(zoom,1e-6));
+  return Math.min(120, 2*Math.asin(Math.min(1,s))*180/Math.PI);
+}
+
+function loadTile(url){
+  const hit=tileCache.get(url);
+  if(hit) return Promise.resolve(hit);
+  return new Promise(res=>{
+    const im=new Image();
+    im.crossOrigin='anonymous';
+    im.onload=()=>{
+      if(tileCache.size>TILE_CACHE_MAX){
+        const k=tileCache.keys().next().value; tileCache.delete(k);
+      }
+      tileCache.set(url,im); res(im);
+    };
+    im.onerror=()=>res(null);
+    im.src=url;
+  });
+}
+
+const detailCv=document.createElement('canvas');
+async function buildDetail(){
+  if(detailBusy) return;
+  const c=centerLatLng();
+  if(!c) return;
+  const style=MAP_STYLES[mapStyle];
+  const span=visibleSpan();
+
+  // Pick the tile zoom whose pixels roughly match what's on screen.
+  const px=Math.max(W,H)*DPR;
+  let z=Math.round(Math.log2(px*360/(span*256)));
+  z=Math.max(2, Math.min(style.max, z));
+
+  const latSpan=Math.min(150, span*1.25);
+  const lngSpan=Math.min(300, span*1.25/Math.max(0.15,Math.cos(c.lat*Math.PI/180)));
+  const latMax=Math.min(85, c.lat+latSpan/2), latMin=Math.max(-85, c.lat-latSpan/2);
+  const lngMin=c.lng-lngSpan/2;
+
+  const key=[mapStyle,z,c.lat.toFixed(3),c.lng.toFixed(3),span.toFixed(2)].join('|');
+  if(key===detailKey) return;
+  detailBusy=true;
+
+  const n=Math.pow(2,z);
+  const xa=Math.floor((lngMin+180)/360*n);
+  const xb=Math.floor((lngMin+lngSpan+180)/360*n);
+  const ya=Math.floor((1-mercY(latMax)/Math.PI)/2*n);
+  const yb=Math.floor((1-mercY(latMin)/Math.PI)/2*n);
+  const cols=Math.min(10, xb-xa+1), rows=Math.min(10, yb-ya+1);
+
+  const CW=Math.min(3072, cols*256), CH=Math.min(3072, rows*256);
+  detailCv.width=CW; detailCv.height=CH;
+  const g=detailCv.getContext('2d');
+  g.fillStyle='#0b1a2b'; g.fillRect(0,0,CW,CH);
+
+  const jobs=[];
+  for(let i=0;i<cols;i++) for(let j=0;j<rows;j++){
+    const tx=((xa+i)%n+n)%n, ty=ya+j;
+    if(ty<0||ty>=n) continue;
+    jobs.push({tx,ty,url:style.url(z,tx,ty)});
+  }
+  const imgs=await Promise.all(jobs.map(j=>loadTile(j.url)));
+
+  // Tiles are Mercator; the globe samples equirectangular. Drawing each tile as
+  // horizontal strips warps it correctly instead of stretching it.
+  const STRIPS=12;
+  jobs.forEach((j,i)=>{
+    const im=imgs[i]; if(!im) return;
+    const tLngMin=j.tx/n*360-180;
+    const tLatTop=mercLat((1-2*j.ty/n)*Math.PI);
+    const tLatBot=mercLat((1-2*(j.ty+1)/n)*Math.PI);
+    let dxRel=tLngMin-lngMin;
+    dxRel=((dxRel+180)%360+360)%360-180;
+    const dx=dxRel/lngSpan*CW;
+    const dw=(360/n)/lngSpan*CW;
+    for(let s=0;s<STRIPS;s++){
+      const f0=s/STRIPS, f1=(s+1)/STRIPS;
+      const la0=tLatTop+(tLatBot-tLatTop)*f0;
+      const la1=tLatTop+(tLatBot-tLatTop)*f1;
+      const y0=(latMax-la0)/latSpan*CH;
+      const y1=(latMax-la1)/latSpan*CH;
+      g.drawImage(im, 0, f0*im.height, im.width, Math.max(1,(f1-f0)*im.height),
+                     dx, y0, dw, Math.max(1,y1-y0));
+    }
+  });
+
+  if(gl){
+    uploadTexture(detailCv);
+    texWindow={lngMin, lngSpan, latMax, latSpan};
+    detailActive=true; detailKey=key;
+    const cr=document.getElementById('map-credit');
+    if(cr) cr.textContent=style.credit;
+    render();
+  }
+  detailBusy=false;
+}
+
+function restoreBaseMap(){
+  if(!detailActive) return;
+  detailActive=false; detailKey='';
+  const cr=document.getElementById('map-credit');
+  if(cr) cr.textContent='';
+  if(gl && baseImage) uploadTexture(baseImage);
+  texWindow={...BASE_WINDOW};
+  render();
+}
+
+function updateDetail(){
+  clearTimeout(detailTimer);
+  if(zoom<DETAIL_FROM){ restoreBaseMap(); return; }
+  detailTimer=setTimeout(()=>{ buildDetail().catch(e=>console.warn('tiles',e)); }, 200);
+}
+
+function setMapStyle(s){
+  mapStyle=s;
+  try{ localStorage.setItem('gs-style',s); }catch(e){}
+  document.querySelectorAll('[data-style]').forEach(el=>
+    el.classList.toggle('active', el.getAttribute('data-style')===s));
+  const cr=document.getElementById('map-credit');
+  if(cr) cr.textContent=detailActive?MAP_STYLES[s].credit:'';
+  detailKey='';
+  if(zoom>=DETAIL_FROM) buildDetail();
+}
+
+// A fixed vocabulary keeps the archive browsable as it grows — free text
+// would fragment into synonyms. Three is enough to characterise a sound.
+const TAG_VOCAB=['Voice','Water','Wind','Birds','Traffic','Machinery','Footsteps',
+  'Bells','Music','Market','Crowd','Rain','Indoors','Nature','Night','Ritual',
+  'Work','Transport','Silence','Weather'];
+const MAX_TAGS=3;
+
+function renderTagPicker(container, selected, onChange){
+  container.innerHTML=TAG_VOCAB.map(t=>
+    `<button type="button" class="tag-opt${selected.includes(t)?' on':''}" data-tag="${t}">${t}</button>`).join('');
+  container.querySelectorAll('.tag-opt').forEach(b=>{
+    b.addEventListener('click',()=>{
+      const t=b.getAttribute('data-tag');
+      const i=selected.indexOf(t);
+      if(i>-1) selected.splice(i,1);
+      else{
+        if(selected.length>=MAX_TAGS) return;
+        selected.push(t);
+      }
+      container.querySelectorAll('.tag-opt').forEach(x=>
+        x.classList.toggle('on', selected.includes(x.getAttribute('data-tag'))));
+      const atMax=selected.length>=MAX_TAGS;
+      container.querySelectorAll('.tag-opt').forEach(x=>
+        x.classList.toggle('dim', atMax && !selected.includes(x.getAttribute('data-tag'))));
+      if(onChange) onChange(selected);
+    });
+  });
+  const atMax=selected.length>=MAX_TAGS;
+  container.querySelectorAll('.tag-opt').forEach(x=>
+    x.classList.toggle('dim', atMax && !selected.includes(x.getAttribute('data-tag'))));
+}
+
 let currentYear=2026;
 function render(){
   drawGlobe();
@@ -912,7 +1173,7 @@ function render(){
 
   const touch=matchMedia('(pointer:coarse)').matches;
   const baseDot=(touch?5.6:4.4);
-  const groupPx=touch?30:24;
+  const groupPx=touch?22:18;
   const clusters=[];
   const taken=new Array(vis.length).fill(false);
   for(let a=0;a<vis.length;a++){
@@ -953,14 +1214,18 @@ function render(){
   gsvg.innerHTML=html;
 }
 // GPU draws at full quality every frame, so there's no reduced-quality mode
-const renderFast=render;
+const renderFast=()=>{ render(); updateDetail(); };
 
 /* --- interaction --- */
 let dragging=false,lastX=0,lastY=0,moved=0;
 const touches=new Map(); let pinchDist=null,pinchZoom=1;
 
+let multiTouchSeen=false;
 gsvg.addEventListener('pointerdown',e=>{
-  if(e.pointerType==='touch') touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(e.pointerType==='touch'){
+    touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(touches.size>1) multiTouchSeen=true;   // a pinch must never place a pin
+  }
   dragging=true; lastX=e.clientX; lastY=e.clientY; moved=0;
   gsvg.classList.add('grabbing');
   gsvg.setPointerCapture(e.pointerId);
@@ -971,6 +1236,7 @@ gsvg.addEventListener('pointermove',e=>{
     if(touches.size===2){
       const p=[...touches.values()];
       const d=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
+      multiTouchSeen=true;
       if(pinchDist===null){pinchDist=d;pinchZoom=zoom;}
       else{ zoom=Math.max(ZMIN,Math.min(ZMAX,pinchZoom*(d/pinchDist))); renderFast(); }
       return;
@@ -991,9 +1257,11 @@ function endPointer(e){
   dragging=false; gsvg.classList.remove('grabbing');
 }
 gsvg.addEventListener('pointerup',e=>{
-  const wasTap=moved<(matchMedia('(pointer:coarse)').matches?10:6);
+  const wasTap=moved<(matchMedia('(pointer:coarse)').matches?10:6) && !multiTouchSeen;
+  const wasMulti=multiTouchSeen;
   endPointer(e);
-  if(!wasTap) return;
+  if(touches.size===0) multiTouchSeen=false;   // reset once every finger is up
+  if(!wasTap||wasMulti) return;
   const rect=gsvg.getBoundingClientRect();
   const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
   if(pickingLocation){ handlePick(sx,sy); return; }
@@ -1065,7 +1333,10 @@ function openPanel(i){
   document.getElementById('panel-edit').style.display=p.mine?'block':'none';
   document.getElementById('p-eyebrow').textContent='Recorded — '+p.place;
   document.getElementById('p-title').textContent=p.title;
-  document.getElementById('p-meta').textContent=p.year+' · contributed by '+p.who;
+  const when = p.madeAt ? new Date(p.madeAt) : (p.created_at?new Date(p.created_at):null);
+  const stamp = when && !isNaN(when) ? when.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})
+      +' · '+when.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}) : String(p.year);
+  document.getElementById('p-meta').textContent=stamp+' · contributed by '+p.who;
   document.getElementById('p-why').textContent=p.why;
   document.getElementById('p-tags').innerHTML=p.tags.map(t=>`<span class="tag">${t}</span>`).join('');
   const ph=document.getElementById('p-photo');
@@ -1194,11 +1465,12 @@ function blobAs(pin,type){
 function audioSourceFor(pin){
   // A blob held on this device is the dependable source: object URLs from a
   // previous session are dead, and a server URL may not have uploaded.
+  if(pin.audioBytes && pin.audioBytes.byteLength>0 && !pin.audioBlob) rehydrateAudio(pin);
   if(pin.audioBlob && pin.audioBlob.size>0){
     if(curObjURL){ try{ URL.revokeObjectURL(curObjURL); }catch(e){} }
-    // An untyped blob (older recordings) is unplayable until it's relabelled.
-    const b = (retryIdx>=0) ? blobAs(pin,RETRY_TYPES[retryIdx])
-            : (pin.audioBlob.type ? pin.audioBlob : blobAs(pin,'audio/mp4'));
+    const type = (retryIdx>=0) ? RETRY_TYPES[retryIdx]
+               : (pin.audioBlob.type || pin.audioType || 'audio/mp4');
+    const b = (pin.audioBlob.type===type) ? pin.audioBlob : new Blob([pin.audioBlob],{type});
     curObjURL=URL.createObjectURL(b);
     return curObjURL;
   }
@@ -1223,8 +1495,9 @@ function startPlay(){
   player.onended=stopPlay;
   player.onplaying=()=>{
     setStatus('');
-    if(retryIdx>=0 && currentPin.audioBlob && !currentPin.audioBlob.type){
-      currentPin.audioBlob=blobAs(currentPin,RETRY_TYPES[retryIdx]);  // remember what worked
+    if(retryIdx>=0 && currentPin.audioBlob){
+      currentPin.audioType=RETRY_TYPES[retryIdx];                    // remember what worked
+      currentPin.audioBlob=new Blob([currentPin.audioBlob],{type:currentPin.audioType});
       saveAll();
     }
   };
@@ -1335,7 +1608,10 @@ async function loadRemote(localCache){
     };
     const local=byId[row.id];
     if(local){
-      if(local.audioBlob){ p.audioBlob=local.audioBlob; try{ p.audio=URL.createObjectURL(local.audioBlob); }catch(e){} }
+      if(local.audioBytes||local.audioBlob){
+        p.audioBytes=local.audioBytes; p.audioType=local.audioType; p.audioBlob=local.audioBlob;
+        rehydrateAudio(p);
+      }
       if(!p.peaks && local.peaks) p.peaks=local.peaks;
       if(!p.spec && local.spec) p.spec=local.spec;
     }
@@ -1426,19 +1702,50 @@ async function saveAll(){
     const all=[...publicPins.filter(p=>p.mine).map(p=>({...p,visibility:'public'})),
                ...privatePins.filter(p=>p.mine).map(p=>({...p,visibility:'private'}))];
     for(const p of all){
-      const {audio,...rest}=p;              // object URLs die on reload; the Blob is what matters
-      // rest keeps audioBlob, peaks, spec and photo
+      const {audio,audioBlob,...rest}=p;    // object URLs die on reload
+      // Safari cannot reliably read a Blob back out of IndexedDB, so keep the
+      // raw bytes and the type instead and rebuild the Blob when loading.
+      if(audioBlob && audioBlob.size>0){
+        try{
+          rest.audioBytes=await blobBytes(audioBlob);
+          rest.audioType =audioBlob.type || p.audioType || 'audio/mp4';
+          rest.audioSize =audioBlob.size;
+        }catch(e){ console.warn('could not read audio bytes', e); }
+      }
       await idbPut('pins',rest);
     }
     await idbPut('meta',{k:'user',v:currentUser});
     flashSaved();
   }catch(e){ console.warn('save failed',e); }
 }
+// Turn stored bytes back into something playable.
+function blobBytes(blob){
+  if(blob.arrayBuffer) return blob.arrayBuffer();
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result);
+    r.onerror=()=>rej(r.error||new Error('read failed'));
+    r.readAsArrayBuffer(blob);
+  });
+}
+
+function rehydrateAudio(p){
+  try{
+    if(p.audioBytes && p.audioBytes.byteLength>0){
+      p.audioBlob=new Blob([p.audioBytes], {type: p.audioType || 'audio/mp4'});
+    }
+    if(p.audioBlob && p.audioBlob.size>0){
+      if(p.audio && String(p.audio).startsWith('blob:')){ try{ URL.revokeObjectURL(p.audio); }catch(e){} }
+      p.audio=URL.createObjectURL(p.audioBlob);
+    }
+  }catch(e){ console.warn('rehydrate failed', e); }
+}
+
 async function loadAll(){
   if(!storageOK) return;
   const rows=await idbAll('pins');
   rows.forEach(p=>{
-    if(p.audioBlob){ try{ p.audio=URL.createObjectURL(p.audioBlob); }catch(e){} }
+    rehydrateAudio(p);
     if(p.visibility==='private') privatePins.push(p); else publicPins.push(p);
   });
   const m=await idbGet('meta','user');
@@ -1463,8 +1770,10 @@ async function exportArchive(){
              ...privatePins.filter(p=>p.mine).map(p=>({...p,visibility:'private'}))];
   const out=[];
   for(const p of all){
-    const {audio,audioBlob,...rest}=p;
-    rest.audioData = audioBlob ? await blobToDataURL(audioBlob) : null;
+    const {audio,audioBlob,audioBytes,...rest}=p;
+    const blobForExport = audioBlob || (audioBytes ? new Blob([audioBytes],{type:p.audioType||'audio/mp4'}) : null);
+    rest.audioData = blobForExport ? await blobToDataURL(blobForExport) : null;
+    rest.audioType = p.audioType || (blobForExport&&blobForExport.type) || null;
     out.push(rest);
   }
   const payload={format:'global-sounds-archive',version:1,exported:new Date().toISOString(),user:currentUser,entries:out};
@@ -1484,7 +1793,11 @@ async function importArchive(file){
     for(const e of data.entries){
       const p={...e, mine:true};
       if(e.audioData){
-        const r=await fetch(e.audioData); p.audioBlob=await r.blob(); p.audio=URL.createObjectURL(p.audioBlob);
+        const r=await fetch(e.audioData);
+        const b=await r.blob();
+        p.audioBytes=await blobBytes(b);
+        p.audioType=e.audioType||b.type||'audio/mp4';
+        rehydrateAudio(p);
       }
       delete p.audioData;
       p.id = p.id || newId();
@@ -1623,10 +1936,17 @@ const recModal=document.getElementById('rec-modal');
 const accModal=document.getElementById('acc-modal');
 function showModal(m){ overlay.classList.add('open'); m.classList.add('open'); }
 function hideModal(m){ m.classList.remove('open'); if(!document.querySelector('.modal.open')) overlay.classList.remove('open'); }
-overlay.addEventListener('click',()=>{ if(!pickingLocation){ hideModal(recModal); hideModal(accModal); hideModal(editModal); hideModal(aboutModal); hideModal(clusterModal); stopRecording(true); }});
+overlay.addEventListener('click',()=>{
+  if(pickingLocation) return;
+  // The record flow holds work that isn't saved yet, so a stray tap outside
+  // must not throw it away. Everything else can close freely.
+  if(recModal.classList.contains('open')) return;
+  hideModal(accModal); hideModal(editModal); hideModal(aboutModal); hideModal(clusterModal);
+});
 
 /* ---------- record flow state ---------- */
 let step=1, recBlobUrl=null, recBlob=null, recPhoto=null, recLoc=null, recVis='public';
+let recTags=[], editTags=[];
 function goStep(n){
   step=n;
   document.querySelectorAll('.rec-step').forEach(el=>el.style.display=(+el.dataset.step===n)?'block':'none');
@@ -1652,13 +1972,25 @@ function openRecordFlow(){
   document.getElementById('loc-coords').textContent='—';
   document.getElementById('loc-status').textContent='Not set yet';
   document.getElementById('loc-lat').value=''; document.getElementById('loc-lng').value='';
+  recTags=[];
+  renderTagPicker(document.getElementById('rec-tags'), recTags,
+    sel=>{ document.getElementById('rec-tag-count').textContent=sel.length+' of '+MAX_TAGS+' chosen'; });
+  document.getElementById('rec-tag-count').textContent='0 of '+MAX_TAGS+' chosen';
   setVis(recVis);
   buildRecBars();
   goStep(1);
   showModal(recModal);
 }
 document.getElementById('contribute-btn').addEventListener('click',openRecordFlow);
-document.getElementById('rec-close').addEventListener('click',()=>{ stopRecording(true); hideModal(recModal); });
+function confirmDiscard(){
+  const hasWork = recBlob || recPhoto || recLoc ||
+    document.getElementById('rec-title').value.trim() ||
+    document.getElementById('rec-why').value.trim();
+  if(hasWork && !confirm('Discard this recording and close?')) return;
+  stopRecording(true);
+  hideModal(recModal);
+}
+document.getElementById('rec-close').addEventListener('click',confirmDiscard);
 
 /* ---------- STEP 1: real audio recording ---------- */
 let mediaRec=null, recMime='', chunks=[], stream=null, audioCtx=null, analyser=null, rafId=null, recTimer=null, recSeconds=0;
@@ -1909,8 +2241,10 @@ document.getElementById('rec-submit').addEventListener('click',()=>{
     lat:recLoc.lat, lng:recLoc.lng, year:Math.min(currentYear,REAL),
     place:recLoc.lat.toFixed(2)+'°, '+recLoc.lng.toFixed(2)+'°',
     title, who: currentUser?(currentUser.name||currentUser.email):'you',
-    why, tags:[recVis==='private'?'Personal memory':'Everyday'],
-    photo:recPhoto, audio:recBlobUrl, audioBlob:recBlob, id:newId(), mine:true,
+    why, tags: recTags.slice(),
+    photo:recPhoto, audio:recBlobUrl, audioBlob:recBlob,
+    audioType:(recBlob&&recBlob.type)||recMime||'audio/mp4',
+    id:newId(), mine:true, madeAt:new Date().toISOString(),
     spec:recSpec?recSpec.url:null, dur:recSpec?recSpec.duration:null,
     peaks:recSpec?recSpec.peaks:null
   };
@@ -1939,7 +2273,7 @@ function flyTo(lat,lng,targetZoom){
     const t=Math.min(1,(now-t0)/700), e=1-Math.pow(1-t,3);
     rotY=sY+(tY-sY)*e; rotX=sX+(tX-sX)*e; zoom=sZ+(tZ-sZ)*e;
     render();
-    if(t<1) requestAnimationFrame(tick);
+    if(t<1) requestAnimationFrame(tick); else updateDetail();
   })(t0);
 }
 
@@ -2023,6 +2357,10 @@ function openEdit(){
   const pv=document.getElementById('edit-photo-preview');
   if(editPhoto){ pv.style.backgroundImage=`url(${editPhoto})`; pv.textContent=''; }
   else { pv.style.backgroundImage=''; pv.textContent='None'; }
+  editTags=Array.isArray(p.tags)?p.tags.filter(t=>TAG_VOCAB.includes(t)).slice(0,MAX_TAGS):[];
+  renderTagPicker(document.getElementById('edit-tags'), editTags,
+    sel=>{ document.getElementById('edit-tag-count').textContent=sel.length+' of '+MAX_TAGS+' chosen'; });
+  document.getElementById('edit-tag-count').textContent=editTags.length+' of '+MAX_TAGS+' chosen';
   refreshEditLoc();
   setEditVis(currentView);
   closePanel();
@@ -2052,6 +2390,7 @@ document.getElementById('edit-save').addEventListener('click',()=>{
   editPin.title=document.getElementById('edit-title').value.trim()||editPin.title;
   editPin.why=document.getElementById('edit-why').value.trim()||editPin.why;
   editPin.photo=editPhoto;
+  editPin.tags=editTags.slice();
   if(editLoc){ editPin.lat=editLoc.lat; editPin.lng=editLoc.lng; editPin.place=editLoc.lat.toFixed(2)+'°, '+editLoc.lng.toFixed(2)+'°'; }
   // move between the global map and the private archive if visibility changed
   if(editVis!==editFromView){
@@ -2117,6 +2456,8 @@ document.getElementById('menu-account').addEventListener('click',()=>{
   else showModal(accModal);
 });
 document.getElementById('menu-about').addEventListener('click',()=>{closeMenu();openAbout();});
+document.querySelectorAll('[data-style]').forEach(b=>
+  b.addEventListener('click',e=>{ e.stopPropagation(); setMapStyle(b.getAttribute('data-style')); }));
 document.getElementById('menu-export').addEventListener('click',()=>{
   closeMenu();
   const mine=[...publicPins,...privatePins].filter(p=>p.mine).length;
@@ -2128,7 +2469,12 @@ document.getElementById('import-file').addEventListener('change',e=>{
   closeMenu(); importArchive(f); e.target.value='';
 });
 
-addEventListener('keydown',e=>{ if(e.key==='Escape'){ closePanel(); closeMenu(); if(pickingLocation) endPick(); else { stopRecording(true); hideModal(recModal); hideModal(accModal); hideModal(editModal); hideModal(aboutModal); hideModal(clusterModal);} }});
+addEventListener('keydown',e=>{ if(e.key==='Escape'){
+    closePanel(); closeMenu();
+    if(pickingLocation){ endPick(); return; }
+    if(recModal.classList.contains('open')){ confirmDiscard(); return; }
+    hideModal(accModal); hideModal(editModal); hideModal(aboutModal); hideModal(clusterModal);
+  }});
 
 /* ================= TIME SLIDER ================= */
 const track=document.getElementById('timeline-track'),handle=document.getElementById('time-handle'),readout=document.getElementById('time-readout');
