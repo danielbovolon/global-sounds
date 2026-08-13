@@ -360,6 +360,7 @@
   .loc-status{ font-size:11px; color:var(--text-muted); font-family:var(--serif); font-style:italic; }
 
   #cluster-list{ margin-top:16px; }
+  .owner-note{ font-size:10px; color:var(--text-muted); font-family:var(--serif); font-style:italic; text-align:center; margin-top:10px; }
   .tag-grid{ display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
   .tag-opt{
     background:none; border:1px solid var(--rule); color:var(--text-muted);
@@ -447,8 +448,7 @@
         <div class="menu-divider"></div>
         <div class="menu-item" id="menu-account">Sign In</div>
         <div class="menu-item" id="menu-about">About</div>
-        <div class="menu-divider"></div>
-        
+      </div>
     </div>
   </div>
 
@@ -500,7 +500,11 @@
   <div class="why" id="p-why"></div>
   <img id="p-photo" alt="">
   <div class="tags" id="p-tags"></div>
-  <button class="btn" id="panel-edit" style="display:none;width:100%;margin-top:4px;">Edit this entry</button>
+  <div id="owner-actions" style="display:none;">
+    <button class="btn" id="panel-edit" style="width:100%;">Edit this entry</button>
+    <button class="btn ask-danger" id="panel-delete" style="width:100%;margin-top:8px;">Delete this entry</button>
+    <div class="owner-note">Only you can change or remove this.</div>
+  </div>
 </div>
 
 <div id="storage-warn">
@@ -614,6 +618,7 @@
       <button id="vis-private">My Archive</button>
     </div>
     <div class="note" id="vis-explain" style="margin-top:12px;">Anyone exploring the globe will be able to find and listen to this.</div>
+    <div class="note" id="vis-ownership" style="margin-top:10px;"></div>
     <div class="btn-row">
       <button class="btn" id="vis-back">Back</button>
     </div>
@@ -678,7 +683,7 @@
   <div class="about-row"><span>Openness</span><span>No expertise required to take part</span></div>
   <div class="about-row"><span>Compassion</span><span>Easy to give a sound, easy to receive one</span></div>
   <hr class="about-hr">
-  <p class="about-p small">You never need an account to add to Global Sounds. One is only needed to keep a private archive of your own.</p>
+  <p class="about-p small">You never need an account to add a sound. Whatever you contribute stays yours to edit or remove; nobody else can touch it. An account only becomes useful if you want a private archive, or to manage your recordings from more than one device.</p>
   <button class="btn-primary" id="about-start">Start listening</button>
 </div>
 
@@ -687,7 +692,7 @@
   <button class="close" id="acc-close"></button>
   <div class="eyebrow2">Global Sounds Account</div>
   <h2>Sign in or create an account</h2>
-  <div class="note">Only needed for your private archive. Contributing never requires one.</div>
+  <div class="note">Entirely optional. You can record and contribute without one — this only adds a private archive, and lets you manage your recordings from any device.</div>
   <label class="field-label">Email</label>
   <input class="input" id="acc-email" type="email" placeholder="you@example.com">
   <label class="field-label" id="acc-pass-label" style="display:none;">Password</label>
@@ -734,13 +739,7 @@
 })();
 
 /* ================= DATA ================= */
-const publicPins=[
-  {lat:46.4983,lng:11.3548,year:new Date().getFullYear(),place:"Bozen / Bolzano",
-   title:"Test entry — Talvera", who:"you",
-   why:"A placeholder so the map isn't empty. Record something and this can go.",
-   tags:["Everyday"]}
-];
-const SEED_PIN=publicPins[0];
+const publicPins=[];
 let privatePins=[];
 let currentUser=null, currentView='public';
 const activePins=()=>currentView==='private'?privatePins:publicPins;
@@ -1694,7 +1693,7 @@ let openPinIdx=-1;
 function openPanel(i){
   const p=activePins()[i]; if(!p) return;
   openPinIdx=i;
-  document.getElementById('panel-edit').style.display=p.mine?'block':'none';
+  document.getElementById('owner-actions').style.display=p.mine?'block':'none';
   document.getElementById('p-eyebrow').textContent='Recorded — '+p.place;
   document.getElementById('p-title').textContent=p.title;
   const when = p.madeAt ? new Date(p.madeAt) : (p.created_at?new Date(p.created_at):null);
@@ -1916,7 +1915,7 @@ document.getElementById('play-btn').addEventListener('click',()=>playing?stopPla
 const SUPABASE_URL = 'https://uqbcoarliimdzqtweutg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxYmNvYXJsaWltZHpxdHdldXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNDg5NDIsImV4cCI6MjEwMTkyNDk0Mn0.BKr1cpgJ7q156GlbBwFy2Yp49LZ5eCaNMx-uk94lk-g';
 
-let sb=null, remote=false, backendProblem=null, uploadTrouble=null;
+let sb=null, remote=false, backendProblem=null, uploadTrouble=null, anonSession=false;
 
 async function initBackend(){
   if(!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
@@ -1924,10 +1923,35 @@ async function initBackend(){
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     remote = true;
-    const { data:{ session } } = await sb.auth.getSession();
-    if(session) currentUser = { email:session.user.email, name:session.user.user_metadata?.name||'', id:session.user.id, avatar:session.user.user_metadata?.avatar||null };
+    // Contributing never asks for an account — but an entry still needs an
+    // owner, otherwise nobody (including the person who made it) could ever
+    // remove it. A silent session gives ownership without asking for anything.
+    // If it is unavailable, contributing still works; see pushPin.
+    await ensureSession();
     return true;
   }catch(e){ console.warn('backend unavailable, staying local', e); remote=false; return false; }
+}
+
+// Quietly obtain (or restore) an identity. Nothing is ever asked of the user.
+async function ensureSession(){
+  if(!sb) return false;
+  try{
+    const { data:{ session } } = await sb.auth.getSession();
+    if(session){
+      const u=session.user;
+      anonSession=!u.email;
+      currentUser={ id:u.id, email:u.email||'', name:u.user_metadata?.name||'', avatar:u.user_metadata?.avatar||null, anon:anonSession };
+      return true;
+    }
+    const { data, error } = await sb.auth.signInAnonymously();
+    if(!error && data && data.session){
+      const u=data.session.user;
+      anonSession=true;
+      currentUser={ id:u.id, email:'', name:'', avatar:null, anon:true };
+      return true;
+    }
+  }catch(e){}
+  return false;
 }
 
 function publicUrl(path){
@@ -1959,7 +1983,6 @@ async function loadRemote(localCache){
     return;
   }
   publicPins.length=0; privatePins.length=0;
-  publicPins.push(SEED_PIN);
   data.forEach(row=>{
     const p={
       id:row.id, lat:row.lat, lng:row.lng, year:row.year, place:row.place,
@@ -1994,6 +2017,10 @@ async function pushPin(pin, visibility){
   const audio_path = pin.audio_path || await uploadBlob(pin.audioBlob, audioExt);
   const photo_path = pin.photo_path || await uploadBlob(await dataURLtoBlob(pin.photo),'jpg');
   const spec_path  = pin.spec_path  || await uploadBlob(await dataURLtoBlob(pin.spec),'png');
+  // A session can lapse. Try once to get a fresh anonymous one so the entry
+  // stays owned; failing that, contribute it unowned rather than lose it.
+  if(!currentUser?.id) await ensureSession();
+  if(!currentUser?.id && visibility==='private') visibility='public';
   const row={
     lat:pin.lat, lng:pin.lng, year:pin.year, place:pin.place, title:pin.title,
     who:pin.who, why:pin.why, tags:pin.tags, duration:pin.dur||null,
@@ -2016,9 +2043,10 @@ async function pushPin(pin, visibility){
   }
 }
 async function removePin(pin){
-  if(!pin.remote) return;
+  if(!pin.remote) return {ok:true};
   const { error } = await sb.from('sounds').delete().eq('id',pin.id);
-  if(error) console.warn('delete failed', error);
+  if(error){ console.warn('delete refused', error); return {ok:false, msg:error.message}; }
+  return {ok:true};
 }
 
 /* ================= STORAGE =================
@@ -2627,6 +2655,12 @@ function setVis(v){
   document.getElementById('vis-explain').textContent = v==='private'
     ? 'Only you will see this. It stays in your private archive until you choose otherwise.'
     : 'Anyone exploring the globe will be able to find and listen to this.';
+  const own=document.getElementById('vis-ownership');
+  if(own){
+    if(signedIn()) own.textContent='Yours to edit or remove, from any device you sign in on.';
+    else if(currentUser&&currentUser.id) own.textContent='No account needed. Yours to edit or remove on this device — sign in later to manage it anywhere.';
+    else own.textContent='No account needed. Note that without one this entry cannot be removed again afterwards.';
+  }
 }
 document.getElementById('vis-public').addEventListener('click',()=>setVis('public'));
 document.getElementById('vis-private').addEventListener('click',()=>setVis('private'));
@@ -2704,12 +2738,21 @@ document.getElementById('acc-submit').addEventListener('click',async ()=>{
   if(remote){
     const pw=document.getElementById('acc-pass').value;
     if(!pw||pw.length<6){ alert('Please choose a password of at least 6 characters.'); return; }
-    let res=await sb.auth.signInWithPassword({email,password:pw});
-    if(res.error) res=await sb.auth.signUp({email,password:pw,options:{data:{name,avatar}}});
+    let res;
+    if(anonSession && currentUser && currentUser.id){
+      // Upgrade the anonymous session in place so anything already contributed
+      // from this device stays attached to the new account.
+      const up=await sb.auth.updateUser({email,password:pw,data:{name,avatar}});
+      res = up.error ? await sb.auth.signInWithPassword({email,password:pw}) : {data:{user:up.data.user},error:null};
+    } else {
+      res=await sb.auth.signInWithPassword({email,password:pw});
+      if(res.error) res=await sb.auth.signUp({email,password:pw,options:{data:{name,avatar}}});
+    }
     if(res.error){ alert(res.error.message); return; }
     const u=res.data.user;
     if(!u){ alert('Check your email to confirm the account, then sign in again.'); return; }
-    currentUser={email,name,avatar,id:u.id};
+    anonSession=false;
+    currentUser={email,name,avatar,id:u.id,anon:false};
     updateAccount();
     await loadRemote();
     updateViewUI();
@@ -2723,10 +2766,11 @@ document.getElementById('acc-submit').addEventListener('click',async ()=>{
   hideModal(accModal);
   if(pendingRecord){ pendingRecord=false; showModal(recModal); setVis('private'); }
 });
+function signedIn(){ return !!(currentUser && currentUser.email); }
 function updateAccount(){
   const s=document.getElementById('account-summary');
   const a=document.getElementById('menu-account');
-  if(currentUser){
+  if(signedIn()){
     s.style.display='flex';
     s.innerHTML=`<div class="av" style="${currentUser.avatar?`background-image:url(${currentUser.avatar})`:''}"></div>
       <div class="who">${currentUser.name||'Signed in'}<small>${currentUser.email}</small></div>`;
@@ -2796,6 +2840,25 @@ function openEdit(){
   showModal(editModal);
 }
 document.getElementById('panel-edit').addEventListener('click',openEdit);
+document.getElementById('panel-delete').addEventListener('click',async ()=>{
+  const p=activePins()[openPinIdx];
+  if(!p||!p.mine) return;
+  const ok=await ask('Delete this entry?','This removes the recording for good. It cannot be undone.','Delete','Cancel');
+  if(!ok) return;
+  if(remote && p.remote){
+    const res=await removePin(p);
+    if(!res.ok){
+      await ask('Could not delete it','The server would not remove this entry.\n\n'+(res.msg||''),'OK','');
+      return;
+    }
+  }
+  const arr=activePins();
+  const i=arr.indexOf(p);
+  if(i>-1) arr.splice(i,1);
+  closePanel();
+  saveAll();
+  updateViewUI();
+});
 document.getElementById('edit-close').addEventListener('click',()=>hideModal(editModal));
 document.getElementById('cluster-close').addEventListener('click',()=>hideModal(clusterModal));
 
@@ -2810,7 +2873,7 @@ document.getElementById('edit-photo-library').addEventListener('change',e=>readE
 document.getElementById('edit-loc-btn').addEventListener('click',()=>beginPick('edit'));
 document.getElementById('edit-vis-public').addEventListener('click',()=>setEditVis('public'));
 document.getElementById('edit-vis-private').addEventListener('click',()=>{
-  if(!currentUser){ pendingRecord=false; editModal.classList.remove('open'); showModal(accModal); return; }
+  if(!signedIn()){ pendingRecord=false; editModal.classList.remove('open'); showModal(accModal); return; }
   setEditVis('private');
 });
 
@@ -2840,13 +2903,25 @@ document.getElementById('edit-save').addEventListener('click',()=>{
 
 document.getElementById('edit-delete').addEventListener('click',async ()=>{
   if(!editPin) return;
+  if(!editPin.mine){
+    await ask('This is not your entry','Only the person who recorded a sound can remove it.','OK','');
+    return;
+  }
   const ok=await ask('Delete this entry?','This removes the recording for good. It cannot be undone.','Delete','Cancel');
   if(!ok) return;
+  if(remote && editPin.remote){
+    const res=await removePin(editPin);
+    if(!res.ok){
+      await ask('Could not delete it',
+        'The server would not remove this entry — it may have been contributed from another device or account.\n\n'+(res.msg||''),
+        'OK','');
+      return;                       // leave it in place rather than faking success
+    }
+  }
   const arr = editFromView==='private'?privatePins:publicPins;
   const gone=editPin;
   const idx=arr.indexOf(editPin);
   if(idx>-1) arr.splice(idx,1);
-  if(remote) removePin(gone);
   editPin=null;
   saveAll();
   hideModal(editModal);
@@ -2867,22 +2942,44 @@ function updateViewUI(){
   document.getElementById('menu-public').classList.toggle('active',currentView==='public');
   document.getElementById('menu-private').classList.toggle('active',currentView==='private');
   document.getElementById('stage-title').textContent=currentView==='private'?'Your private archive':'A sonic map of the world';
-  document.getElementById('stage-hint').textContent=currentView==='private'
-    ? (privatePins.length?'Only you can see these':'Nothing here yet — record something')
-    : 'Drag to turn · Pinch or scroll to zoom · Tap a point to listen';
+  const hint=document.getElementById('stage-hint');
+  if(currentView==='private'){
+    hint.textContent = privatePins.length ? 'Only you can see these' : 'Nothing here yet — record something';
+  } else {
+    hint.textContent = publicPins.length
+      ? 'Drag to turn · Pinch or scroll to zoom · Tap a point to listen'
+      : 'No sounds here yet — record the first one';
+  }
   render();
 }
 document.getElementById('menu-public').addEventListener('click',()=>{closeMenu();currentView='public';updateViewUI();});
 document.getElementById('menu-private').addEventListener('click',()=>{
   closeMenu();
-  if(!currentUser){ pendingRecord=false; showModal(accModal); return; }
+  if(!signedIn()){ pendingRecord=false; showModal(accModal); return; }
   currentView='private'; updateViewUI();
 });
 document.getElementById('menu-contribute').addEventListener('click',()=>{closeMenu();openRecordFlow();});
 document.getElementById('menu-selections').addEventListener('click',()=>{closeMenu();alert('Coming next: curated collections you build from the map, public or private.');});
 document.getElementById('menu-account').addEventListener('click',()=>{
   closeMenu();
-  if(currentUser){ if(remote&&sb) sb.auth.signOut(); currentUser=null; currentView='public'; updateAccount(); if(remote) loadRemote().then(updateViewUI); else updateViewUI(); saveAll(); }
+  if(signedIn()){
+    (async()=>{
+      if(remote&&sb){
+        await sb.auth.signOut();
+        currentUser=null; anonSession=false;
+        try{
+          const { data, error } = await sb.auth.signInAnonymously();
+          if(!error && data && data.session){
+            const u=data.session.user; anonSession=true;
+            currentUser={ id:u.id, email:'', name:'', avatar:null, anon:true };
+          }
+        }catch(e){}
+        updateAccount(); currentView='public'; await loadRemote(); updateViewUI();
+      }else{
+        currentUser=null; currentView='public'; updateAccount(); updateViewUI(); saveAll();
+      }
+    })();
+  }
   else showModal(accModal);
 });
 document.getElementById('menu-about').addEventListener('click',()=>{closeMenu();openAbout();});
