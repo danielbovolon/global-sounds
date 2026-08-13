@@ -121,7 +121,10 @@
   #menu-label{ font-size:8.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--text-muted); pointer-events:none; }
 
   #menu-dropdown{
-    position:absolute; top:64px; right:0; width:236px;
+    position:absolute; top:64px; right:0;
+    width:min(244px, calc(100vw - 40px));
+    max-height:calc(100dvh - 210px);
+    overflow-y:auto; -webkit-overflow-scrolling:touch;
     background:var(--panel-bg); border:1px solid var(--rule);
     box-shadow:0 14px 34px rgba(0,0,0,.5);
     padding:10px 0; opacity:0; pointer-events:none; transform:translateY(-6px);
@@ -129,19 +132,19 @@
   }
   #menu-dropdown.open{ opacity:1; pointer-events:auto; transform:translateY(0); }
   #menu-dropdown .mhead{
-    font-family:var(--serif); font-style:italic; font-size:9px; letter-spacing:.22em;
-    color:var(--text-muted); text-align:center; padding-bottom:9px;
-    margin:0 18px 8px; border-bottom:1px solid var(--rule);
+    font-family:var(--serif); font-style:italic; font-size:8.5px; letter-spacing:.22em;
+    color:var(--text-muted); text-align:center; padding-bottom:7px;
+    margin:0 18px 6px; border-bottom:1px solid var(--rule);
   }
   .menu-item{
     display:flex; justify-content:space-between; align-items:center;
-    padding:10px 18px; font-size:12px; letter-spacing:.05em;
+    padding:9px 18px; font-size:12px; letter-spacing:.05em;
     font-family:var(--serif); text-transform:uppercase; cursor:pointer;
   }
   .menu-item:hover{ background:rgba(242,178,92,.08); color:var(--pin-active); }
   .menu-item.active{ color:var(--pin-active); }
   .menu-sub{ font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--text-muted); padding:4px 18px 6px; }
-  .style-row{ display:flex; gap:6px; padding:0 14px 8px; }
+  .style-row{ display:flex; gap:5px; padding:0 14px 12px; }
   .style-btn{
     flex:1; background:none; border:1px solid var(--rule); color:var(--text-muted);
     padding:8px 4px; font-size:9.5px; letter-spacing:.06em; text-transform:uppercase;
@@ -154,7 +157,7 @@
     font-family:var(--sans); pointer-events:none; text-shadow:0 1px 2px rgba(0,0,0,.8);
     max-width:70%; line-height:1.3;
   }
-  .menu-divider{ border-top:1px solid var(--rule); margin:6px 18px; }
+  .menu-divider{ border-top:1px solid var(--rule); margin:5px 18px; }
   .soon{ font-size:8px; letter-spacing:.06em; color:var(--text-muted); border:1px solid var(--rule); padding:2px 5px; font-family:var(--sans); }
   #account-summary{ display:none; align-items:center; gap:10px; padding:2px 18px 10px; }
   #account-summary .av{ width:28px; height:28px; border-radius:50%; border:1px solid var(--rule); background:rgba(255,255,255,.05) center/cover no-repeat; flex-shrink:0; }
@@ -423,6 +426,13 @@
       <div id="menu-dropdown">
         <div class="mhead">GLOBAL SOUNDS</div>
         <div id="account-summary"></div>
+        <div class="menu-sub">Map</div>
+        <div class="style-row">
+          <button class="style-btn" data-style="satellite">Satellite</button>
+          <button class="style-btn" data-style="terrain">Terrain</button>
+          <button class="style-btn" data-style="streets">Atlas</button>
+        </div>
+        <div class="menu-divider"></div>
         <div class="menu-item active" id="menu-public">Global Sounds</div>
         <div class="menu-item" id="menu-private">My Archive</div>
         <div class="menu-divider"></div>
@@ -438,13 +448,7 @@
         <div class="menu-item" id="menu-account">Sign In</div>
         <div class="menu-item" id="menu-about">About</div>
         <div class="menu-divider"></div>
-        <div class="menu-sub">Map</div>
-        <div class="style-row">
-          <button class="style-btn" data-style="satellite">Satellite</button>
-          <button class="style-btn" data-style="terrain">Terrain</button>
-          <button class="style-btn" data-style="streets">Streets</button>
-        </div>
-      </div>
+        
     </div>
   </div>
 
@@ -753,13 +757,14 @@ let W=0,H=0,CX=0,CY=0,baseR=0;
 const DPR=Math.min(window.devicePixelRatio||1,3);
 
 function layout(){
-  W=zone.clientWidth; H=zone.clientHeight;
+  W=zone.clientWidth || window.innerWidth || 390;
+  H=zone.clientHeight|| Math.round((window.innerHeight||640)*0.62);
   CX=W/2; CY=H/2;
   baseR=Math.min(W,H)*0.46;
   gsvg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   gsvg.setAttribute('width',W); gsvg.setAttribute('height',H);
   render();
-  if(detailActive) scheduleTileDraw();
+  if(viewMode==='flat') scheduleTileDraw();
 }
 addEventListener('resize',layout);
 addEventListener('orientationchange',()=>setTimeout(layout,180));
@@ -777,12 +782,41 @@ function rot(v){
   const Z2=v.y*Math.sin(rotX)+Z1*Math.cos(rotX);
   return{x:X1,y:Y2,z:Z2};
 }
-function project(lat,lng){
+let viewMode='globe';                 // 'globe' | 'flat'
+let flatLat=0, flatLng=0, flatZ=3;    // centre and Mercator zoom of the flat view
+
+function worldPx(){ return 256*Math.pow(2,flatZ); }
+function flatProject(lat,lng){
+  const s=worldPx();
+  const cx=(flatLng+180)/360*s;
+  const cy=(1-mercY(flatLat)/Math.PI)/2*s;
+  let dx=((lng+180)/360*s)-cx;
+  const half=s/2;
+  if(dx>half) dx-=s; else if(dx<-half) dx+=s;    // wrap the short way round
+  const dy=((1-mercY(Math.max(-85,Math.min(85,lat)))/Math.PI)/2*s)-cy;
+  return{ x:W/2+dx, y:H/2+dy, z:1,
+          visible: dx>-W && dx<W*2 && dy>-H && dy<H*2 };
+}
+function globeProject(lat,lng){
   const r=rot(vec(lat,lng)), R=baseR*zoom;
   return{x:CX+R*r.x,y:CY-R*r.y,z:r.z,visible:r.z>0.02};
 }
+function project(lat,lng){
+  return viewMode==='flat' ? flatProject(lat,lng) : globeProject(lat,lng);
+}
 // screen point -> lat/lng (exact inverse of project)
+function flatUnproject(sx,sy){
+  const s=worldPx();
+  const cx=(flatLng+180)/360*s;
+  const cy=(1-mercY(flatLat)/Math.PI)/2*s;
+  const px=cx+(sx-W/2), py=cy+(sy-H/2);
+  let lng=px/s*360-180;
+  lng=((lng+180)%360+360)%360-180;
+  const lat=mercLat((1-2*py/s)*Math.PI);
+  return{lat:Math.max(-85,Math.min(85,lat)), lng};
+}
 function screenToLatLng(sx,sy){
+  if(viewMode==='flat') return flatUnproject(sx,sy);
   const R=baseR*zoom;
   const nx=(sx-CX)/R, ny=(sy-CY)/R;
   const d2=nx*nx+ny*ny;
@@ -1004,8 +1038,9 @@ let mapStyle='satellite';
 try{ mapStyle=localStorage.getItem('gs-style')||'satellite'; }catch(e){}
 if(!MAP_STYLES[mapStyle]) mapStyle='satellite';
 
-const DETAIL_FROM=6;                 // globe below this, tiles above
-let detailActive=false;
+const DETAIL_FROM=6;                 // globe below this, flat map above
+let FLAT_MIN_Z=3;                    // set once the viewport size is known
+
 const tileCache=new Map();
 const TILE_MAX=400;
 let tilesPending=0;
@@ -1129,11 +1164,8 @@ function visibleBounds(){
 }
 
 function drawTiles(){
-  if(!detailActive||!tctx) return;
-  const b=visibleBounds();
-  if(!b) return;
+  if(viewMode!=='flat'||!tctx) return;
   const style=MAP_STYLES[mapStyle];
-
   const q=DPR;
   const cw=Math.round(W*q), ch=Math.round(H*q);
   if(tileCv.width!==cw||tileCv.height!==ch){ tileCv.width=cw; tileCv.height=ch; }
@@ -1141,90 +1173,70 @@ function drawTiles(){
   tctx.clearRect(0,0,W,H);
   tctx.fillStyle='#08131f';
   tctx.fillRect(0,0,W,H);
+  tctx.imageSmoothingEnabled=true;
+  tctx.imageSmoothingQuality='high';
 
-  const spanLng=Math.max(1e-9, b.lngMax-b.lngMin);
-  let z=Math.round(Math.log2(W*q*360/(spanLng*256)));
-  z=Math.max(1, Math.min(style.max, z));
-  const n=Math.pow(2,z);
+  // Tiles sit on an exact grid: each is a plain square at a computed offset.
+  // Nothing is stretched or warped, so tiles cannot tear or leave gaps.
+  const Z=Math.max(0, Math.min(style.max, Math.round(flatZ)));
+  const n=Math.pow(2,Z);
+  const size=256*Math.pow(2, flatZ-Z);          // on-screen size of one tile
+  const s=worldPx();
+  const originX=(flatLng+180)/360*s - W/2;
+  const originY=(1-mercY(flatLat)/Math.PI)/2*s - H/2;
 
-  const xa=Math.floor((b.lngMin+180)/360*n);
-  const xb=Math.floor((b.lngMax+180)/360*n);
-  const ya=Math.floor((1-mercY(Math.min(85,b.latMax))/Math.PI)/2*n);
-  const yb=Math.floor((1-mercY(Math.max(-85,b.latMin))/Math.PI)/2*n);
-  if((xb-xa)>40||(yb-ya)>40) return;
+  const x0=Math.floor(originX/size), x1=Math.floor((originX+W)/size);
+  const y0=Math.max(0,Math.floor(originY/size)), y1=Math.min(n-1,Math.floor((originY+H)/size));
 
-  const STRIPS=8;
-  let sharp=0, stale=0, waiting=false;
-
-  for(let tx=xa; tx<=xb; tx++){
-    for(let ty=ya; ty<=yb; ty++){
-      if(ty<0||ty>=n) continue;
+  let waiting=false, drew=0;
+  for(let tx=x0; tx<=x1; tx++){
+    for(let ty=y0; ty<=y1; ty++){
       const wx=((tx%n)+n)%n;
-      const want=getTile(mapStyle,z,wx,ty);
+      const dx=Math.round(tx*size-originX), dy=Math.round(ty*size-originY);
+      const dw=Math.ceil(size)+1, dh=Math.ceil(size)+1;
 
-      let src=null, sx0=0, sy0=0, sw=1, sh=1;
-      if(want.__ready){ src=want; sharp++; }
-      else{
-        // fall back to a coarser tile we already hold, cropped to this area
-        const alt=bestAvailable(mapStyle,z,wx,ty);
-        if(alt){
-          const dz=z-alt.z, f=Math.pow(2,dz);
-          src=alt.im;
-          sx0=(wx-alt.x*f)/f; sy0=(ty-alt.y*f)/f; sw=1/f; sh=1/f;
-          stale++;
-        } else if(!want.__failed) waiting=true;
+      const want=getTile(mapStyle,Z,wx,ty);
+      if(want.__ready){
+        try{ tctx.drawImage(want,dx,dy,dw,dh); drew++; }catch(e){}
+        continue;
       }
-      if(!src) continue;
-
-      const lngL=tx/n*360-180, lngR=(tx+1)/n*360-180;
-      const latT=mercLat((1-2*ty/n)*Math.PI);
-      const latB=mercLat((1-2*(ty+1)/n)*Math.PI);
-      const iw=src.naturalWidth||256, ih=src.naturalHeight||256;
-
-      for(let s=0;s<STRIPS;s++){
-        const f0=s/STRIPS, f1=(s+1)/STRIPS;
-        const la0=latT+(latB-latT)*f0;
-        const la1=latT+(latB-latT)*f1;
-        const p00=project(la0,lngL), p11=project(la1,lngR);
-        if(!p00.visible&&!p11.visible) continue;
-        const dw=p11.x-p00.x, dh=p11.y-p00.y;
-        if(!isFinite(dw)||!isFinite(dh)||dw<=0||dh<=0) continue;
-        try{
-          tctx.drawImage(src,
-            sx0*iw, (sy0+sh*f0)*ih, sw*iw, Math.max(1, sh*(f1-f0)*ih),
-            p00.x-0.5, p00.y-0.5, dw+1, dh+1);
-        }catch(e){}
+      if(!want.__failed) waiting=true;
+      // stand in with a coarser tile we already hold, cropped to this square
+      const alt=bestAvailable(mapStyle,Z,wx,ty);
+      if(alt){
+        const f=Math.pow(2,Z-alt.z);
+        const sxp=(wx-alt.x*f)/f*256, syp=(ty-alt.y*f)/f*256, sp=256/f;
+        try{ tctx.drawImage(alt.im, sxp,syp,sp,sp, dx,dy,dw,dh); drew++; }catch(e){}
       }
     }
   }
 
-  prefetchAround(mapStyle, z, xa, xb, ya, yb, n);
+  prefetchFlat(Z,n,size,originX,originY);
 
   const cr=document.getElementById('map-credit');
   if(cr){
-    cr.textContent = (sharp||stale) ? style.credit
+    cr.textContent = drew ? style.credit
       : (waiting ? 'Loading map…'
-      : (navigator.onLine ? 'Map tiles unavailable' : 'Offline — no saved tiles for this area'));
+      : (navigator.onLine ? 'Map tiles unavailable' : 'Offline — no saved tiles here'));
   }
-  if(waiting||stale) scheduleTileDraw();
+  if(waiting) scheduleTileDraw();
 }
 
-// Warm the ring just outside the view so panning feels instant.
 let prefetchTimer=null;
-function prefetchAround(style,z,xa,xb,ya,yb,n){
+function prefetchFlat(Z,n,size,originX,originY){
   clearTimeout(prefetchTimer);
   prefetchTimer=setTimeout(()=>{
     if(!navigator.onLine) return;
-    for(let tx=xa-1; tx<=xb+1; tx++){
-      for(let ty=ya-1; ty<=yb+1; ty++){
-        if(ty<0||ty>=n) continue;
-        if(tx>=xa&&tx<=xb&&ty>=ya&&ty<=yb) continue;
-        if(tilesPending>18) return;
-        getTile(style,z,((tx%n)+n)%n,ty);
-      }
+    const x0=Math.floor(originX/size)-1, x1=Math.floor((originX+W)/size)+1;
+    const y0=Math.floor(originY/size)-1, y1=Math.floor((originY+H)/size)+1;
+    for(let tx=x0; tx<=x1; tx++) for(let ty=y0; ty<=y1; ty++){
+      if(ty<0||ty>=n) continue;
+      if(tilesPending>16) return;
+      getTile(mapStyle,Z,((tx%n)+n)%n,ty);
     }
-  }, 400);
+  },350);
 }
+
 
 
 /* ---- Saving a region for use without signal ---- */
@@ -1303,24 +1315,86 @@ async function clearOfflineTiles(){
   if(!ok) return;
   await idbClear('tiles');
   tileCache.clear();
-  if(detailActive) drawTiles();
+  if(viewMode==='flat') drawTiles();
   await ask('Saved maps removed','Map detail will be fetched again when you have a connection.','OK','');
 }
 
-function setDetail(on){
-  if(on===detailActive) return;
-  detailActive=on;
+// Globe zoom and Mercator zoom describe the same thing differently; these
+// convert between them so the handover happens at the same apparent scale.
+function globeZoomToFlatZ(){
+  const c=globeCentre();
+  const half=Math.min(W,H)/2;
+  const s=Math.min(1, half/(baseR*Math.max(zoom,1e-6)));
+  const spanDeg=2*Math.asin(s)*180/Math.PI;               // vertical span
+  const spanLng=Math.max(1e-6, spanDeg/Math.max(0.05,Math.cos(c.lat*Math.PI/180)));
+  const z=Math.log2(360*Math.max(1,W)/(256*spanLng));
+  return isFinite(z) ? z : 6;                        // never hand back NaN
+}
+function flatZToGlobeZoom(){
+  const spanLng=360*W/(256*Math.pow(2,flatZ));
+  const spanDeg=spanLng*Math.max(0.05,Math.cos(flatLat*Math.PI/180));
+  const half=Math.min(W,H)/2;
+  const s=Math.sin(spanDeg*Math.PI/180/2);
+  return half/(baseR*Math.max(s,1e-9));
+}
+function globeCentre(){
+  const r=rot({x:0,y:0,z:1});                              // not used directly
+  const lat=Math.asin(Math.max(-1,Math.min(1,Math.sin(rotX))))*180/Math.PI;
+  const lng=-rotY*180/Math.PI;
+  return {lat, lng:((lng+180)%360+360)%360-180};
+}
+
+function enterFlat(){
+  const c=globeCentre();
+  flatLat=Math.max(-85,Math.min(85,c.lat));
+  flatLng=c.lng;
+  const fz=globeZoomToFlatZ();
+  flatZ=Math.max(2, isFinite(fz)?fz:6);
+  viewMode='flat';
   initTileCanvas();
-  tileCv.style.display=on?'block':'none';
-  texCv.style.display=on?'none':'block';
+  tileCv.style.display='block';
+  texCv.style.display='none';
+  drawTiles();
+}
+function enterGlobe(){
+  rotY=-flatLng*Math.PI/180;
+  rotX=flatLat*Math.PI/180;
+  zoom=Math.max(ZMIN, Math.min(ZMAX, flatZToGlobeZoom()));
+  viewMode='globe';
+  if(tctx) tileCv.style.display='none';
+  texCv.style.display='block';
   const cr=document.getElementById('map-credit');
-  if(cr&&!on) cr.textContent='';
-  if(on) drawTiles();
+  if(cr) cr.textContent='';
+}
+
+function panFlat(dx,dy){
+  const s=worldPx();
+  let cx=(flatLng+180)/360*s - dx;
+  let cy=(1-mercY(flatLat)/Math.PI)/2*s - dy;
+  cy=Math.max(0,Math.min(s,cy));
+  let lng=((cx/s*360-180)+180)%360; if(lng<0) lng+=360; flatLng=lng-180;
+  flatLat=Math.max(-85,Math.min(85, mercLat((1-2*cy/s)*Math.PI)));
+}
+
+// Zooming keeps the point under the cursor or fingers fixed, the way a map
+// should behave — otherwise the place you are looking at slides away.
+function zoomFlatAt(factor, sx, sy){
+  const before=flatUnproject(sx,sy);
+  flatZ=Math.max(1, Math.min(MAP_STYLES[mapStyle].max+2, flatZ+Math.log2(factor)));
+  const after=flatUnproject(sx,sy);
+  const s=worldPx();
+  let cx=(flatLng+180)/360*s + (before.lng-after.lng)/360*s;
+  let cy=(1-mercY(flatLat)/Math.PI)/2*s
+        + ((1-mercY(before.lat)/Math.PI)/2*s - (1-mercY(after.lat)/Math.PI)/2*s);
+  cy=Math.max(0,Math.min(s,cy));
+  let lng=((cx/s*360-180)+180)%360; if(lng<0) lng+=360; flatLng=lng-180;
+  flatLat=Math.max(-85,Math.min(85, mercLat((1-2*cy/s)*Math.PI)));
 }
 
 function updateDetail(){
-  setDetail(zoom>=DETAIL_FROM);
-  if(detailActive) scheduleTileDraw();
+  if(viewMode==='globe' && zoom>=DETAIL_FROM){ enterFlat(); render(); return; }
+  if(viewMode==='flat'  && flatZ<FLAT_MIN_Z){  enterGlobe(); render(); return; }
+  if(viewMode==='flat') scheduleTileDraw();
 }
 
 const baseImages={};
@@ -1336,14 +1410,53 @@ function applyBase(im){
   baseImage=im;
   if(gl && ready){ uploadTexture(im); render(); }
 }
+// The globe is painted from the same tile service used close in, so the
+// imagery you see zoomed out is the imagery you zoom into — no jump when the
+// view changes over. The shipped images are the instant/offline stand-in.
+const globeSkin={};
+async function buildGlobeSkin(style){
+  if(globeSkin[style]) { applyBase(globeSkin[style]); return; }
+  const Z=3, n=8, TS=256;
+  const merc=document.createElement('canvas');
+  merc.width=n*TS; merc.height=n*TS;
+  const mg=merc.getContext('2d');
+  let got=0;
+  await Promise.all(Array.from({length:n*n},(_,i)=>{
+    const x=i%n, y=(i/n)|0;
+    return new Promise(res=>{
+      const im=getTile(style,Z,x,y);
+      const done=()=>{ if(im.__ready){ try{ mg.drawImage(im,x*TS,y*TS,TS,TS); got++; }catch(e){} } res(); };
+      if(im.__ready||im.__failed) return done();
+      let tries=0;
+      const t=setInterval(()=>{ if(im.__ready||im.__failed||++tries>60){ clearInterval(t); done(); } },100);
+    });
+  }));
+  if(got < n*n*0.6) return;                      // too patchy to be worth showing
+
+  // Mercator -> equirectangular, one destination row at a time so it is exact.
+  const out=document.createElement('canvas');
+  out.width=2048; out.height=1024;               // power of two, as WebGL wants
+  const og=out.getContext('2d');
+  og.drawImage(merc,0,0,2048,1024);              // fallback fill for the poles
+  for(let y=0;y<1024;y++){
+    const lat=90-(y+0.5)/1024*180;
+    if(Math.abs(lat)>85) continue;
+    const my=(1-mercY(lat)/Math.PI)/2*merc.height;
+    og.drawImage(merc, 0, Math.max(0,Math.min(merc.height-1,my)), merc.width, 1, 0, y, 2048, 1);
+  }
+  globeSkin[style]=out;
+  if(mapStyle===style) applyBase(out);
+}
+
 function setMapStyle(s){
   if(!MAP_STYLES[s]) return;
   mapStyle=s;
   try{ localStorage.setItem('gs-style',s); }catch(e){}
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===s));
-  loadBaseTexture(s);          // the globe reflects the choice immediately
-  if(detailActive) drawTiles();
+  loadBaseTexture(s);          // shipped image shows instantly…
+  buildGlobeSkin(s);           // …then the real tile imagery replaces it
+  if(viewMode==='flat') drawTiles();
 }
 
 // A fixed vocabulary keeps the archive browsable as it grows — free text
@@ -1450,7 +1563,7 @@ const renderFast=()=>{ render(); updateDetail(); };
 
 /* --- interaction --- */
 let dragging=false,lastX=0,lastY=0,moved=0;
-const touches=new Map(); let pinchDist=null,pinchZoom=1;
+const touches=new Map(); let pinchDist=null,pinchZoom=1,pinchFlatZ=3;
 
 let multiTouchSeen=false;
 gsvg.addEventListener('pointerdown',e=>{
@@ -1469,17 +1582,31 @@ gsvg.addEventListener('pointermove',e=>{
       const p=[...touches.values()];
       const d=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
       multiTouchSeen=true;
-      if(pinchDist===null){pinchDist=d;pinchZoom=zoom;}
-      else{ zoom=Math.max(ZMIN,Math.min(ZMAX,pinchZoom*(d/pinchDist))); renderFast(); }
+      if(pinchDist===null){ pinchDist=d; pinchZoom=zoom; pinchFlatZ=flatZ; }
+      else{
+        const ratio=d/pinchDist;
+        if(viewMode==='flat'){
+          const rect=gsvg.getBoundingClientRect();
+          const mx=(p[0].x+p[1].x)/2-rect.left, my=(p[0].y+p[1].y)/2-rect.top;
+          const target=pinchFlatZ+Math.log2(ratio);
+          zoomFlatAt(Math.pow(2,target-flatZ), mx, my);
+        }else{
+          zoom=Math.max(ZMIN,Math.min(ZMAX,pinchZoom*ratio));
+        }
+        renderFast();
+      }
       return;
     }
   }
   if(!dragging||touches.size>=2) return;
   const dx=e.clientX-lastX, dy=e.clientY-lastY;
   moved+=Math.abs(dx)+Math.abs(dy);
-  // slower rotation when zoomed in, so close-up navigation stays controllable
-  const k=0.005/Math.max(1,zoom*0.7);
-  rotY+=dx*k; rotX+=dy*k;
+  if(viewMode==='flat'){
+    panFlat(dx,dy);                       // the map follows your finger exactly
+  }else{
+    const k=0.005/Math.max(1,zoom*0.7);
+    rotY+=dx*k; rotX+=dy*k;
+  }
   lastX=e.clientX; lastY=e.clientY;
   renderFast();
 });
@@ -1510,7 +1637,12 @@ gsvg.addEventListener('pointerleave',e=>{ if(e.pointerType!=='touch'){dragging=f
 gsvg.addEventListener('wheel',e=>{
   e.preventDefault();
   const f=Math.exp(-e.deltaY*0.0018);   // exponential = even feel at every zoom level
-  zoom=Math.max(ZMIN,Math.min(ZMAX,zoom*f));
+  if(viewMode==='flat'){
+    const rect=gsvg.getBoundingClientRect();
+    zoomFlatAt(f, e.clientX-rect.left, e.clientY-rect.top);
+  }else{
+    zoom=Math.max(ZMIN,Math.min(ZMAX,zoom*f));
+  }
   renderFast();
 },{passive:false});
 
@@ -2532,6 +2664,12 @@ document.getElementById('rec-submit').addEventListener('click',()=>{
 });
 
 function flyTo(lat,lng,targetZoom){
+  if(viewMode==='flat'){
+    flatLat=Math.max(-85,Math.min(85,lat)); flatLng=lng;
+    if(targetZoom!==undefined) flatZ=Math.max(1,Math.min(MAP_STYLES[mapStyle].max+2, flatZ+Math.log2(targetZoom/Math.max(zoom,1e-6))));
+    render(); updateDetail();
+    return;
+  }
   const tY=-rad(lng), tX=rad(lat);
   const sY=rotY,sX=rotX,sZ=zoom;
   const tZ=(targetZoom!==undefined)?targetZoom:zoom;
@@ -2817,6 +2955,7 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
   img.src=(MAP_STYLES[mapStyle]&&MAP_STYLES[mapStyle].base)||'earth.jpg';
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===mapStyle));
+  setTimeout(()=>buildGlobeSkin(mapStyle), 1200);   // after the app is usable
   db=await openDB();
   storageOK=!!db;
   let localCache=[];
