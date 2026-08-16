@@ -359,6 +359,18 @@
   .loc-coords{ font-family:var(--serif); font-size:14px; margin-bottom:4px; }
   .loc-status{ font-size:11px; color:var(--text-muted); font-family:var(--serif); font-style:italic; }
 
+  #sel-list, #sel-add-list{ margin-top:14px; }
+  .sel-item{ border:1px solid var(--rule); padding:12px 14px; margin-bottom:8px; cursor:pointer;
+             display:flex; justify-content:space-between; align-items:center; gap:12px; transition:border-color .2s; }
+  .sel-item:hover{ border-color:var(--pin-active); }
+  .sel-name{ font-family:var(--serif); font-size:15px; }
+  .sel-count{ font-size:10.5px; color:var(--text-muted); margin-top:3px; }
+  .sel-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .sel-mini{ background:none; border:1px solid var(--rule); color:var(--text-muted);
+             font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; padding:5px 8px; cursor:pointer; font-family:var(--sans); }
+  .sel-mini:hover{ border-color:var(--pin-active); color:var(--pin-active); }
+  .sel-mini.on{ border-color:var(--pin-active); color:var(--pin-active); }
+  .sel-empty{ font-size:12px; color:var(--text-muted); font-family:var(--serif); font-style:italic; padding:14px 0; }
   #cluster-list{ margin-top:16px; }
   .owner-note{ font-size:10px; color:var(--text-muted); font-family:var(--serif); font-style:italic; text-align:center; margin-top:10px; }
   .tag-grid{ display:flex; flex-wrap:wrap; gap:6px; margin-top:2px; }
@@ -438,7 +450,7 @@
         <div class="menu-item" id="menu-private">My Archive</div>
         <div class="menu-divider"></div>
         <div class="menu-item" id="menu-contribute">Record a Sound</div>
-        <div class="menu-item" id="menu-selections">My Selections <span class="soon">Soon</span></div>
+        <div class="menu-item" id="menu-selections">My Selections</div>
         <div class="menu-divider"></div>
         <div class="menu-item" id="menu-save-area">Save this area offline</div>
         <div class="menu-item" id="menu-clear-tiles">Remove saved maps</div>
@@ -500,6 +512,7 @@
   <div class="why" id="p-why"></div>
   <img id="p-photo" alt="">
   <div class="tags" id="p-tags"></div>
+  <button class="btn" id="panel-add-sel" style="width:100%;margin-bottom:10px;">Add to a selection</button>
   <div id="owner-actions" style="display:none;">
     <button class="btn" id="panel-edit" style="width:100%;">Edit this entry</button>
     <button class="btn ask-danger" id="panel-delete" style="width:100%;margin-top:8px;">Delete this entry</button>
@@ -626,6 +639,33 @@
   </div>
 </div>
 
+<!-- SELECTIONS -->
+<div class="modal" id="sel-modal">
+  <button class="close" id="sel-close"></button>
+  <div class="eyebrow2">Selections</div>
+  <h2 id="sel-title">My Selections</h2>
+  <div class="note">Collections you build from the map — a walk, a season, a way of listening.</div>
+  <div id="sel-list"></div>
+  <label class="field-label">New selection</label>
+  <div style="display:flex;gap:8px;">
+    <input class="input" id="sel-new-name" placeholder="Name it">
+    <button class="btn" id="sel-create" style="white-space:nowrap;">Create</button>
+  </div>
+</div>
+
+<!-- ADD TO SELECTION -->
+<div class="modal" id="sel-add-modal">
+  <button class="close" id="sel-add-close"></button>
+  <div class="eyebrow2">Add to a selection</div>
+  <h2 id="sel-add-title">Choose a selection</h2>
+  <div id="sel-add-list"></div>
+  <label class="field-label">Or start a new one</label>
+  <div style="display:flex;gap:8px;">
+    <input class="input" id="sel-add-name" placeholder="Name it">
+    <button class="btn" id="sel-add-create" style="white-space:nowrap;">Create</button>
+  </div>
+</div>
+
 <!-- CLUSTER LIST -->
 <div class="modal" id="cluster-modal">
   <button class="close" id="cluster-close"></button>
@@ -683,7 +723,9 @@
   <div class="about-row"><span>Openness</span><span>No expertise required to take part</span></div>
   <div class="about-row"><span>Compassion</span><span>Easy to give a sound, easy to receive one</span></div>
   <hr class="about-hr">
-  <p class="about-p small">You never need an account to add a sound. Whatever you contribute stays yours to edit or remove; nobody else can touch it. An account only becomes useful if you want a private archive, or to manage your recordings from more than one device.</p>
+  <hr class="about-hr">
+  <p class="about-p">Adding a sound never requires an account. When you record, you decide whether it joins the public map or stays in a private archive only you can see — and you can move it between the two at any time, or take it down entirely. Nobody else can alter or remove what you recorded.</p>
+  <p class="about-p small">An account is worth making if you want a private archive, or if you'd like to reach your recordings from more than one device.</p>
   <button class="btn-primary" id="about-start">Start listening</button>
 </div>
 
@@ -742,7 +784,13 @@
 const publicPins=[];
 let privatePins=[];
 let currentUser=null, currentView='public';
-const activePins=()=>currentView==='private'?privatePins:publicPins;
+function activePins(){
+  const base = currentView==='private' ? privatePins : publicPins;
+  if(!selActiveId) return base;
+  const sel=selById(selActiveId);
+  if(!sel) return base;
+  return base.filter(p=>sel.ids.includes(p.id));
+}
 
 /* ================= GLOBE ================= */
 const zone=document.getElementById('globe-zone');
@@ -763,7 +811,7 @@ function layout(){
   gsvg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   gsvg.setAttribute('width',W); gsvg.setAttribute('height',H);
   render();
-  if(viewMode==='flat') scheduleTileDraw();
+  if(viewMode==='flat') scheduleTileDraw(true);
 }
 addEventListener('resize',layout);
 addEventListener('orientationchange',()=>setTimeout(layout,180));
@@ -1139,10 +1187,19 @@ function bestAvailable(style,z,x,y){
 }
 
 
-let tileRAF=null;
-function scheduleTileDraw(){
+let tileRAF=null, tileRetryTimer=null, tileRetries=0;
+function scheduleTileDraw(immediate){
+  if(immediate){ tileRetries=0; clearTimeout(tileRetryTimer); }
   if(tileRAF) return;
   tileRAF=requestAnimationFrame(()=>{ tileRAF=null; drawTiles(); });
+}
+// Used when we are only waiting on downloads: retry with a widening gap so a
+// slow or blocked connection costs nothing instead of pinning the CPU.
+function retryTileDraw(){
+  if(tileRetries>12) return;
+  clearTimeout(tileRetryTimer);
+  const delay=Math.min(4000, 120*Math.pow(1.6,tileRetries++));
+  tileRetryTimer=setTimeout(()=>{ tileRAF=null; drawTiles(); }, delay);
 }
 
 // Where on screen does this lat/lng land? Reuses the globe's own projection so
@@ -1162,8 +1219,12 @@ function visibleBounds(){
   return {latMin,latMax,lngMin,lngMax};
 }
 
-function drawTiles(){
+let lastTileDraw=0;
+function drawTiles(force){
   if(viewMode!=='flat'||!tctx) return;
+  const now=performance.now();
+  if(!force && now-lastTileDraw<70){ scheduleTileDraw(); return; }
+  lastTileDraw=now;
   const style=MAP_STYLES[mapStyle];
   const q=DPR;
   const cw=Math.round(W*q), ch=Math.round(H*q);
@@ -1218,7 +1279,7 @@ function drawTiles(){
       : (waiting ? 'Loading map…'
       : (navigator.onLine ? 'Map tiles unavailable' : 'Offline — no saved tiles here'));
   }
-  if(waiting) scheduleTileDraw();
+  if(waiting) retryTileDraw(); else tileRetries=0;
 }
 
 let prefetchTimer=null;
@@ -1393,7 +1454,7 @@ function zoomFlatAt(factor, sx, sy){
 function updateDetail(){
   if(viewMode==='globe' && zoom>=DETAIL_FROM){ enterFlat(); render(); return; }
   if(viewMode==='flat'  && flatZ<FLAT_MIN_Z){  enterGlobe(); render(); return; }
-  if(viewMode==='flat') scheduleTileDraw();
+  if(viewMode==='flat') scheduleTileDraw(true);
 }
 
 const baseImages={};
@@ -1415,6 +1476,15 @@ function applyBase(im){
 const globeSkin={};
 async function buildGlobeSkin(style){
   if(globeSkin[style]) { applyBase(globeSkin[style]); return; }
+  // a previously built skin loads instantly and works offline
+  try{
+    const saved=await idbGet('tiles','skin/'+style);
+    if(saved && saved.b){
+      const im=new Image();
+      await new Promise(res=>{ im.onload=res; im.onerror=res; im.src=URL.createObjectURL(saved.b); });
+      if(im.naturalWidth){ globeSkin[style]=im; if(mapStyle===style) applyBase(im); return; }
+    }
+  }catch(e){}
   const Z=3, n=8, TS=256;
   const merc=document.createElement('canvas');
   merc.width=n*TS; merc.height=n*TS;
@@ -1430,7 +1500,7 @@ async function buildGlobeSkin(style){
       const t=setInterval(()=>{ if(im.__ready||im.__failed||++tries>60){ clearInterval(t); done(); } },100);
     });
   }));
-  if(got < n*n*0.6) return;                      // too patchy to be worth showing
+  if(got < n*n*0.45) return;                     // too patchy to be worth showing
 
   // Mercator -> equirectangular, one destination row at a time so it is exact.
   const out=document.createElement('canvas');
@@ -1445,6 +1515,10 @@ async function buildGlobeSkin(style){
   }
   globeSkin[style]=out;
   if(mapStyle===style) applyBase(out);
+  // keep it, so from now on the globe shows the real imagery immediately
+  try{
+    out.toBlob(b=>{ if(b) idbPut('tiles',{k:'skin/'+style, b, t:Date.now()}); }, 'image/jpeg', 0.86);
+  }catch(e){}
 }
 
 function setMapStyle(s){
@@ -1646,35 +1720,200 @@ gsvg.addEventListener('wheel',e=>{
 },{passive:false});
 
 
+
+/* ================= SELECTIONS =================
+   A selection is a named set of entries drawn from anywhere on the map — a
+   walk, a season, a way of listening. It holds references, not copies, so a
+   sound can sit in several selections at once and stays where it was recorded. */
+let selections=[];                    // [{id,name,ids:[],created}]
+let selActiveId=null;                 // when set, the map shows only this set
+
+function selById(id){ return selections.find(s=>s.id===id); }
+async function saveSelections(){
+  if(!storageOK) return;
+  try{ await idbPut('meta',{k:'selections', v:JSON.parse(JSON.stringify(selections))}); }catch(e){}
+}
+async function loadSelections(){
+  if(!storageOK) return;
+  try{
+    const m=await idbGet('meta','selections');
+    if(m && Array.isArray(m.v)) selections=m.v;
+  }catch(e){}
+}
+function createSelection(name){
+  const s={id:newId(), name:(name||'').trim()||'Untitled selection', ids:[], created:new Date().toISOString()};
+  selections.unshift(s); saveSelections();
+  return s;
+}
+function entriesOf(sel){
+  const all=[...publicPins,...privatePins];
+  return sel.ids.map(id=>all.find(p=>p.id===id)).filter(Boolean);
+}
+function toggleInSelection(sel,pinId){
+  const i=sel.ids.indexOf(pinId);
+  if(i>-1) sel.ids.splice(i,1); else sel.ids.push(pinId);
+  saveSelections();
+}
+
+function renderSelections(){
+  const box=document.getElementById('sel-list');
+  if(!selections.length){
+    box.innerHTML='<div class="sel-empty">No selections yet. Make one below, then add sounds to it from any entry.</div>';
+    return;
+  }
+  box.innerHTML=selections.map(s=>{
+    const n=entriesOf(s).length;
+    return `<div class="sel-item" data-sel="${s.id}">
+      <div>
+        <div class="sel-name">${s.name}</div>
+        <div class="sel-count">${n} sound${n===1?'':'s'}</div>
+      </div>
+      <div class="sel-actions">
+        <button class="sel-mini ${selActiveId===s.id?'on':''}" data-act="show" data-sel="${s.id}">${selActiveId===s.id?'Showing':'Show'}</button>
+        <button class="sel-mini" data-act="del" data-sel="${s.id}">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-act]').forEach(b=>{
+    b.addEventListener('click',async e=>{
+      e.stopPropagation();
+      const id=b.getAttribute('data-sel');
+      if(b.getAttribute('data-act')==='show'){
+        selActiveId = selActiveId===id ? null : id;
+        renderSelections(); updateViewUI(); hideModal(selModal);
+      }else{
+        const s=selById(id);
+        const ok=await ask('Delete this selection?','The sounds in it stay on the map. Only the collection is removed.','Delete','Cancel');
+        if(!ok) return;
+        selections=selections.filter(x=>x.id!==id);
+        if(selActiveId===id) selActiveId=null;
+        saveSelections(); renderSelections(); updateViewUI();
+      }
+    });
+  });
+}
+
+const selModal=document.getElementById('sel-modal');
+const selAddModal=document.getElementById('sel-add-modal');
+function openSelections(){ renderSelections(); showModal(selModal); }
+document.getElementById('sel-close').addEventListener('click',()=>hideModal(selModal));
+document.getElementById('sel-create').addEventListener('click',()=>{
+  const el=document.getElementById('sel-new-name');
+  if(!el.value.trim()) { el.focus(); return; }
+  createSelection(el.value); el.value=''; renderSelections();
+});
+
+// ---- adding the entry you are listening to ----
+function renderAddList(){
+  const p=activePins()[openPinIdx];
+  const box=document.getElementById('sel-add-list');
+  if(!p) return;
+  if(!selections.length){
+    box.innerHTML='<div class="sel-empty">No selections yet — name one below to start.</div>';
+    return;
+  }
+  box.innerHTML=selections.map(s=>{
+    const inIt=s.ids.includes(p.id);
+    return `<div class="sel-item" data-sel="${s.id}">
+      <div><div class="sel-name">${s.name}</div><div class="sel-count">${entriesOf(s).length} sounds</div></div>
+      <button class="sel-mini ${inIt?'on':''}" data-sel="${s.id}">${inIt?'Added':'Add'}</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.sel-mini').forEach(b=>{
+    b.addEventListener('click',e=>{
+      e.stopPropagation();
+      const s=selById(b.getAttribute('data-sel'));
+      if(!s||!p.id) return;
+      toggleInSelection(s,p.id);
+      renderAddList();
+    });
+  });
+}
+document.getElementById('sel-add-close').addEventListener('click',()=>hideModal(selAddModal));
+document.getElementById('sel-add-create').addEventListener('click',()=>{
+  const el=document.getElementById('sel-add-name');
+  if(!el.value.trim()){ el.focus(); return; }
+  const s=createSelection(el.value);
+  const p=activePins()[openPinIdx];
+  if(p&&p.id) toggleInSelection(s,p.id);
+  el.value=''; renderAddList();
+});
+document.getElementById('menu-selections').addEventListener('click',()=>{ closeMenu(); openSelections(); });
+
+
 /* ================= CLUSTERS =================
    Tapping a group zooms toward it so its pins separate at their real
    coordinates. Once the map is as close as it goes, list them instead. */
 function openCluster(ci){
   const members=lastClusters[ci];
   if(!members||members.length<2) return;
-  let vx=0,vy=0,vz=0;
-  members.forEach(m=>{ const v=vec(m.p.lat,m.p.lng); vx+=v.x; vy+=v.y; vz+=v.z; });
-  const L=Math.sqrt(vx*vx+vy*vy+vz*vz)||1;
-  vx/=L; vy/=L; vz/=L;
-  const lat=Math.asin(Math.max(-1,Math.min(1,vy)))*180/Math.PI;
-  const lng=Math.atan2(vx,vz)*180/Math.PI;
 
-  // Work out whether zooming could ever pull these apart. Sounds recorded on
-  // the same street are far closer than the map can resolve, so zooming would
-  // just chase them — in that case go straight to the list.
-  let maxChord=0;
-  for(let a=0;a<members.length;a++){
-    const va=vec(members[a].p.lat,members[a].p.lng);
-    for(let b=a+1;b<members.length;b++){
-      const vb=vec(members[b].p.lat,members[b].p.lng);
-      maxChord=Math.max(maxChord, Math.hypot(va.x-vb.x,va.y-vb.y,va.z-vb.z));
-    }
-  }
+  // Centre of the group, and how far apart its two most distant members are.
+  let latMin=90, latMax=-90, lngMin=180, lngMax=-180;
+  members.forEach(m=>{
+    latMin=Math.min(latMin,m.p.lat); latMax=Math.max(latMax,m.p.lat);
+    lngMin=Math.min(lngMin,m.p.lng); lngMax=Math.max(lngMax,m.p.lng);
+  });
+  const lat=(latMin+latMax)/2, lng=(lngMin+lngMax)/2;
+  const spanLat=Math.max(1e-9, latMax-latMin);
+  const spanLng=Math.max(1e-9, lngMax-lngMin);
+
   const touch=matchMedia('(pointer:coarse)').matches;
-  const needZoom = maxChord>0 ? (touch?30:24)/(baseR*maxChord) : Infinity;
-  if(needZoom>ZMAX || zoom>=ZMAX*0.97){ showClusterList(members); return; }
-  flyTo(lat,lng,Math.min(ZMAX, Math.max(zoom*2.4, needZoom*1.15)));
+  const groupPx=touch?22:18;
+
+  // What Mercator zoom would put the two closest members far enough apart to
+  // be separate pins? Works the same whether we're on the globe or the plane.
+  const closest=(()=>{
+    let d=Infinity;
+    for(let a=0;a<members.length;a++)
+      for(let b=a+1;b<members.length;b++){
+        const dLat=members[a].p.lat-members[b].p.lat;
+        const dLng=(members[a].p.lng-members[b].p.lng)*Math.cos(lat*Math.PI/180);
+        d=Math.min(d, Math.hypot(dLat,dLng));
+      }
+    return d;
+  })();
+  const maxZ=MAP_STYLES[mapStyle].max+2;
+  const needZ = closest>0 && isFinite(closest)
+    ? Math.log2(groupPx*360/(256*closest))
+    : Infinity;
+
+  // Only fall back to a list when even the closest the map goes cannot
+  // separate them — sounds recorded a few metres apart, for instance.
+  if(!isFinite(needZ) || needZ>maxZ){ showClusterList(members); return; }
+
+  // Zoom so the whole group comfortably fills the view, but at least far
+  // enough to break it apart.
+  const fitZ=Math.log2(360*W/(256*Math.max(spanLng, spanLat)*1.8));
+  const targetZ=Math.min(maxZ, Math.max(needZ+0.4, isFinite(fitZ)?fitZ:needZ+0.4));
+
+  if(viewMode==='flat'){
+    flyFlatTo(lat,lng,targetZ);
+  }else{
+    // hand over to the flat map centred on the group
+    flatLat=Math.max(-85,Math.min(85,lat)); flatLng=lng; flatZ=targetZ;
+    viewMode='flat';
+    initTileCanvas();
+    tileCv.style.display='block'; texCv.style.display='none';
+    render(); drawTiles();
+  }
 }
+
+// Ease across to a place and scale on the flat map.
+function flyFlatTo(lat,lng,z){
+  const sLat=flatLat, sLng=flatLng, sZ=flatZ, t0=performance.now();
+  let dLng=lng-sLng; if(dLng>180) dLng-=360; if(dLng<-180) dLng+=360;
+  (function tick(now){
+    const t=Math.max(0,Math.min(1,(now-t0)/600)), e=1-Math.pow(1-t,3);
+    flatLat=sLat+(lat-sLat)*e;
+    flatLng=sLng+dLng*e;
+    flatZ=sZ+(z-sZ)*e;
+    render();
+    if(t<1){ scheduleTileDraw(); requestAnimationFrame(tick); }
+    else { drawTiles(true); updateDetail(); }
+  })(t0);
+}
+
 function showClusterList(members){
   const box=document.getElementById('cluster-list');
   box.innerHTML=members.map(m=>
@@ -2054,6 +2293,9 @@ async function removePin(pin){
    Blob (not a string), so a full-length recording survives a refresh. Nothing
    is uploaded anywhere; this is your machine only. */
 const DB_NAME='commons-db', DB_VER=2;
+// Bumping this wipes locally stored entries once on each device, so a fresh
+// start really is fresh everywhere rather than only on the server.
+const RESET_TOKEN='2026-08-clean-start';
 let db=null, storageOK=false;
 
 function openDB(){
@@ -2361,7 +2603,7 @@ overlay.addEventListener('click',()=>{
   // The record flow holds work that isn't saved yet, so a stray tap outside
   // must not throw it away. Everything else can close freely.
   if(recModal.classList.contains('open')) return;
-  hideModal(accModal); hideModal(editModal); hideModal(aboutModal); hideModal(clusterModal);
+  hideModal(accModal); hideModal(editModal); hideModal(aboutModal); hideModal(clusterModal); hideModal(selModal); hideModal(selAddModal);
 });
 
 /* ---------- record flow state ---------- */
@@ -2709,7 +2951,7 @@ function flyTo(lat,lng,targetZoom){
   const tZ=(targetZoom!==undefined)?targetZoom:zoom;
   const t0=performance.now();
   (function tick(now){
-    const t=Math.min(1,(now-t0)/700), e=1-Math.pow(1-t,3);
+    const t=Math.max(0,Math.min(1,(now-t0)/700)), e=1-Math.pow(1-t,3);
     rotY=sY+(tY-sY)*e; rotX=sX+(tX-sX)*e; zoom=sZ+(tZ-sZ)*e;
     render();
     if(t<1) requestAnimationFrame(tick); else updateDetail();
@@ -2839,6 +3081,14 @@ function openEdit(){
   closePanel();
   showModal(editModal);
 }
+document.getElementById('panel-add-sel').addEventListener('click',()=>{
+  const p=activePins()[openPinIdx];
+  if(!p) return;
+  if(!p.id){ p.id=newId(); saveAll(); }
+  document.getElementById('sel-add-title').textContent=p.title;
+  renderAddList();
+  showModal(selAddModal);
+});
 document.getElementById('panel-edit').addEventListener('click',openEdit);
 document.getElementById('panel-delete').addEventListener('click',async ()=>{
   const p=activePins()[openPinIdx];
@@ -2943,6 +3193,13 @@ function updateViewUI(){
   document.getElementById('menu-private').classList.toggle('active',currentView==='private');
   document.getElementById('stage-title').textContent=currentView==='private'?'Your private archive':'A sonic map of the world';
   const hint=document.getElementById('stage-hint');
+  if(selActiveId && selById(selActiveId)){
+    const s=selById(selActiveId);
+    document.getElementById('stage-title').textContent=s.name;
+    hint.textContent=entriesOf(s).length+' sounds in this selection · Menu to leave it';
+    render();
+    return;
+  }
   if(currentView==='private'){
     hint.textContent = privatePins.length ? 'Only you can see these' : 'Nothing here yet — record something';
   } else {
@@ -2959,7 +3216,6 @@ document.getElementById('menu-private').addEventListener('click',()=>{
   currentView='private'; updateViewUI();
 });
 document.getElementById('menu-contribute').addEventListener('click',()=>{closeMenu();openRecordFlow();});
-document.getElementById('menu-selections').addEventListener('click',()=>{closeMenu();alert('Coming next: curated collections you build from the map, public or private.');});
 document.getElementById('menu-account').addEventListener('click',()=>{
   closeMenu();
   if(signedIn()){
@@ -3052,12 +3308,23 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
   img.src=(MAP_STYLES[mapStyle]&&MAP_STYLES[mapStyle].base)||'earth.jpg';
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===mapStyle));
-  setTimeout(()=>buildGlobeSkin(mapStyle), 1200);   // after the app is usable
+  setTimeout(()=>buildGlobeSkin(mapStyle), 300);    // right after first paint
   db=await openDB();
   storageOK=!!db;
   let localCache=[];
   if(storageOK){
     try{ localCache=await idbAll('pins'); }catch(e){ storageOK=false; }
+  }
+
+  if(storageOK){
+    try{
+      const mark=await idbGet('meta','reset');
+      if(!mark || mark.v!==RESET_TOKEN){
+        await idbClear('pins');
+        await idbPut('meta',{k:'reset',v:RESET_TOKEN});
+        localCache=[];
+      }
+    }catch(e){}
   }
 
   const live=await initBackend();
@@ -3084,6 +3351,7 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
         : 'This browser is blocking local storage, so recordings will be lost on refresh.';
     w.style.display='flex';
   }
+  await loadSelections();
   updateAccount();
   layout();
   setYear(new Date().getFullYear());
