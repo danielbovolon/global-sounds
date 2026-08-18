@@ -986,7 +986,7 @@ function initCPUFallback(image){
   texW=t.width; texH=t.height;
 }
 img.onload=()=>{
-  baseImage=img; baseImages[MAP_STYLES[mapStyle].base]=img;
+  baseImage=img; baseImages[MAP_STYLES[mapStyle].base]=img; shippedBase[mapStyle]=img;
   if(initGL()){ uploadTexture(img); }
   else { gl=null; initCPUFallback(img); }
   ready=true;
@@ -1072,13 +1072,13 @@ const MAP_STYLES = {
   },
   terrain:{
     label:'Terrain', base:'map_terrain.jpg',
-    url:(z,x,y)=>`https://tile.opentopomap.org/${z}/${x}/${y}.png`,
-    max:16, credit:'© OpenTopoMap · © OpenStreetMap contributors · Base: Natural Earth'
+    url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/${z}/${y}/${x}`,
+    max:19, credit:'Esri · USGS · NOAA · Base: Natural Earth'
   },
   streets:{
     label:'Atlas', base:'map_atlas.jpg',
-    url:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
-    max:19, credit:'© OpenStreetMap contributors · Base: Natural Earth'
+    url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`,
+    max:16, credit:'Esri · HERE · Garmin · Base: Natural Earth'
   }
 };
 let mapStyle='satellite';
@@ -1137,41 +1137,80 @@ async function countStoredTiles(){
 }
 
 // Fetch a tile: memory first, then the device, then the network.
-function getTile(style,z,x,y){
+// OpenTopoMap and friends are volunteer-run and refuse bursts of requests —
+// which is what left black squares on the map. Fetch a few at a time instead.
+const tileQueue=[];      // what you are looking at
+const tileQueueLow=[];   // background work, e.g. building the globe skin
+let tileInFlight=0;
+const MAX_IN_FLIGHT=5;
+function pumpTileQueue(){
+  while(tileInFlight<MAX_IN_FLIGHT && (tileQueue.length||tileQueueLow.length)){
+    const job=tileQueue.length ? tileQueue.shift() : tileQueueLow.shift();
+    tileInFlight++;
+    job().finally(()=>{ tileInFlight--; pumpTileQueue(); });
+  }
+}
+function enqueueTile(job, low){ (low?tileQueueLow:tileQueue).push(job); pumpTileQueue(); }
+
+function getTile(style,z,x,y,lowPriority){
   const key=tileKey(style,z,x,y);
   const mem=tileCache.get(key);
   if(mem!==undefined) return mem;
 
   const im=new Image();
-  im.__ready=false; im.__key=key;
+  im.__ready=false; im.__key=key; im.__tries=0;
   tileCache.set(key,im);
   if(tileCache.size>TILE_MAX){
     const k=tileCache.keys().next().value;
     if(k!==key) tileCache.delete(k);
   }
+  fetchTile(im, style, z, x, y, key, !!lowPriority);
+  return im;
+}
+
+// Decode a blob into an image, but never wait forever: a slot held open by an
+// image that neither loads nor errors would stall every tile behind it.
+function decodeInto(im, blob){
+  return new Promise(res=>{
+    let done=false;
+    const finish=()=>{ if(done) return; done=true; clearTimeout(t); res(); };
+    const t=setTimeout(finish, 8000);
+    im.onload=()=>{ im.__ready=true; finish(); };
+    im.onerror=finish;
+    try{ im.src=URL.createObjectURL(blob); }catch(e){ finish(); }
+  });
+}
+
+// A tile that fails is not written off — servers throttle, connections drop.
+// It is retried a few times with a widening gap, then left to the fallback.
+function fetchTile(im, style, z, x, y, key, low){
   tilesPending++;
-  (async()=>{
-    const disk=await tileFromDisk(key);
-    if(disk){
-      im.onload=()=>{ im.__ready=true; tilesPending--; scheduleTileDraw(); };
-      im.onerror=()=>{ im.__failed=true; tilesPending--; scheduleTileDraw(); };
-      im.src=URL.createObjectURL(disk);
-      return;
-    }
-    if(!navigator.onLine){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
+  enqueueTile(async()=>{
     try{
+      const disk=await tileFromDisk(key);
+      if(disk){
+        await decodeInto(im, disk);
+        tilesPending--; scheduleTileDraw();
+        return;
+      }
+      if(!navigator.onLine){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
       const resp=await fetch(MAP_STYLES[style].url(z,x,y), {mode:'cors'});
       if(!resp.ok) throw new Error('http '+resp.status);
       const blob=await resp.blob();
       tileToDisk(key,blob);
-      im.onload=()=>{ im.__ready=true; tilesPending--; scheduleTileDraw(); };
-      im.onerror=()=>{ im.__failed=true; tilesPending--; scheduleTileDraw(); };
-      im.src=URL.createObjectURL(blob);
+      await decodeInto(im, blob);
+      tilesPending--;
+      scheduleTileDraw();
     }catch(e){
-      im.__failed=true; tilesPending--; scheduleTileDraw();
+      tilesPending--;
+      if(++im.__tries<3){
+        setTimeout(()=>fetchTile(im,style,z,x,y,key,low), 500*Math.pow(2,im.__tries));
+      }else{
+        im.__failed=true;
+      }
+      scheduleTileDraw();
     }
-  })();
-  return im;
+  }, low);
 }
 
 // Ancestor tiles already in memory stand in while sharper ones arrive, so the
@@ -1220,6 +1259,24 @@ function visibleBounds(){
 }
 
 let lastTileDraw=0;
+// Cut the matching piece out of the equirectangular world image. Blurry at
+// close range, but always available — far better than a black square.
+function drawFromWorldImage(tx,ty,z,n,dx,dy,dw,dh){
+  const base=shippedBase[mapStyle];
+  if(!base||!base.naturalWidth) return false;
+  const lngL=tx/n*360-180, lngR=(tx+1)/n*360-180;
+  const latT=mercLat((1-2*ty/n)*Math.PI);
+  const latB=mercLat((1-2*(ty+1)/n)*Math.PI);
+  const sw=base.naturalWidth, sh=base.naturalHeight;
+  const sx=(lngL+180)/360*sw;
+  const sx2=(lngR+180)/360*sw;
+  const sy=(90-latT)/180*sh;
+  const sy2=(90-latB)/180*sh;
+  const w=Math.max(0.5, sx2-sx), hgt=Math.max(0.5, sy2-sy);
+  try{ tctx.drawImage(base, sx, Math.max(0,sy), w, Math.min(sh,hgt), dx, dy, dw, dh); return true; }
+  catch(e){ return false; }
+}
+
 function drawTiles(force){
   if(viewMode!=='flat'||!tctx) return;
   const now=performance.now();
@@ -1261,12 +1318,17 @@ function drawTiles(force){
         continue;
       }
       if(!want.__failed) waiting=true;
-      // stand in with a coarser tile we already hold, cropped to this square
+
+      // Nothing should ever render as a black hole. Prefer a coarser tile we
+      // already hold; failing that, take the region straight out of the
+      // whole-world image, which is always present and works offline.
       const alt=bestAvailable(mapStyle,Z,wx,ty);
       if(alt){
         const f=Math.pow(2,Z-alt.z);
         const sxp=(wx-alt.x*f)/f*256, syp=(ty-alt.y*f)/f*256, sp=256/f;
         try{ tctx.drawImage(alt.im, sxp,syp,sp,sp, dx,dy,dw,dh); drew++; }catch(e){}
+      } else {
+        drawFromWorldImage(wx,ty,Z,n,dx,dy,dw,dh);
       }
     }
   }
@@ -1458,11 +1520,12 @@ function updateDetail(){
 }
 
 const baseImages={};
+const shippedBase={};   // the whole-world image per style, used to fill any gap
 function loadBaseTexture(style){
   const file=MAP_STYLES[style].base;
-  if(baseImages[file]){ applyBase(baseImages[file]); return; }
+  if(baseImages[file]){ shippedBase[style]=baseImages[file]; applyBase(baseImages[file]); return; }
   const im=new Image();
-  im.onload=()=>{ baseImages[file]=im; if(mapStyle===style) applyBase(im); };
+  im.onload=()=>{ baseImages[file]=im; shippedBase[style]=im; if(mapStyle===style) applyBase(im); };
   im.onerror=()=>console.warn('base map missing:',file);
   im.src=file;
 }
@@ -1493,14 +1556,30 @@ async function buildGlobeSkin(style){
   await Promise.all(Array.from({length:n*n},(_,i)=>{
     const x=i%n, y=(i/n)|0;
     return new Promise(res=>{
-      const im=getTile(style,Z,x,y);
+      const im=getTile(style,Z,x,y,true);
       const done=()=>{ if(im.__ready){ try{ mg.drawImage(im,x*TS,y*TS,TS,TS); got++; }catch(e){} } res(); };
       if(im.__ready||im.__failed) return done();
       let tries=0;
       const t=setInterval(()=>{ if(im.__ready||im.__failed||++tries>60){ clearInterval(t); done(); } },100);
     });
   }));
-  if(got < n*n*0.45) return;                     // too patchy to be worth showing
+  // Any tile that never arrived is filled from the shipped world image, so the
+  // globe is never left with holes in it.
+  if(got < n*n*0.25) return;
+  const fill=shippedBase[style];
+  if(fill && fill.naturalWidth && got<n*n){
+    for(let i=0;i<n*n;i++){
+      const x=i%n, y=(i/n)|0;
+      const im=tileCache.get(tileKey(style,Z,x,y));
+      if(im && im.__ready) continue;
+      const lngL=x/n*360-180, lngR=(x+1)/n*360-180;
+      const latT=mercLat((1-2*y/n)*Math.PI), latB=mercLat((1-2*(y+1)/n)*Math.PI);
+      const sw=fill.naturalWidth, sh=fill.naturalHeight;
+      const sx=(lngL+180)/360*sw, sx2=(lngR+180)/360*sw;
+      const sy=Math.max(0,(90-latT)/180*sh), sy2=Math.min(sh,(90-latB)/180*sh);
+      try{ mg.drawImage(fill, sx, sy, Math.max(1,sx2-sx), Math.max(1,sy2-sy), x*TS, y*TS, TS, TS); }catch(e){}
+    }
+  }
 
   // Mercator -> equirectangular, one destination row at a time so it is exact.
   const out=document.createElement('canvas');
