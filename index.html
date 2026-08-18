@@ -267,6 +267,18 @@
   }
   .viz-tile:hover, .viz-tile:active{ border-color:var(--viz-color); }
   .viz-tile canvas{ display:block; width:100%; height:100%; }
+  /* A hardware-unit housing for the VU dial — brushed metal either side of
+     the glass, so the meter reads as a physical object rather than a flat
+     digital tile like its neighbours. */
+  .viz-tile.vu-mode{
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.25) 6%, rgba(0,0,0,.25) 94%, rgba(0,0,0,.4)),
+      linear-gradient(135deg,#3B3128,#221B15 45%,#2B2319 100%);
+    border-color:#4A3C2C;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.05), inset 0 2px 6px rgba(0,0,0,.5);
+  }
+  .viz-tile.vu-mode:hover, .viz-tile.vu-mode:active{ border-color:#8A6F45; }
+  .viz-tile.vu-mode .viz-label{ background:rgba(20,15,10,.55); }
   .viz-label{
     position:absolute; top:6px; left:7px; font-size:8.5px; letter-spacing:.12em;
     text-transform:uppercase; color:var(--text-primary); font-family:var(--sans);
@@ -533,7 +545,7 @@
     </div>
     <div id="play-status"></div>
     <div id="audio-src"></div>
-    <audio id="player" playsinline preload="auto" style="display:none"></audio>
+    <audio id="player" playsinline preload="auto" crossorigin="anonymous" style="display:none"></audio>
     <div id="viz-block">
       <div class="viz-tile" id="viz-meter" title="Tap to switch meter style">
         <canvas id="viz-meter-canvas"></canvas>
@@ -1245,6 +1257,13 @@ function fetchTile(im, style, z, x, y, key, low){
       }
       if(!navigator.onLine){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
       const resp=await fetch(MAP_STYLES[style].url(z,x,y), {mode:'cors'});
+      // A 404/410 means this provider has no tile here (common outside a
+      // basemap's covered regions at deep zoom) — that is permanent, not a
+      // hiccup, so retrying it just leaves a patchwork of stale imagery on
+      // screen for several seconds. Give up immediately and let the
+      // ancestor/whole-world fallback take over; only transient failures
+      // (network errors, 5xx) get retried.
+      if(resp.status===404||resp.status===410){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
       if(!resp.ok) throw new Error('http '+resp.status);
       const blob=await resp.blob();
       tileToDisk(key,blob);
@@ -1652,13 +1671,19 @@ async function buildGlobeSkin(style){
 
 function setMapStyle(s){
   if(!MAP_STYLES[s]) return;
+  if(mapStyle===s) return;
   mapStyle=s;
   try{ localStorage.setItem('gs-style',s); }catch(e){}
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===s));
+  // Drop anything still queued for the style we just left — those fetches
+  // would otherwise occupy the in-flight slots ahead of the new style's
+  // tiles, so the map sits on low-res fallback imagery longer than it needs
+  // to (part of what reads as "mixed" tiles right after switching).
+  tileQueue.length=0; tileQueueLow.length=0;
   loadBaseTexture(s);          // shipped image shows instantly…
   buildGlobeSkin(s);           // …then the real tile imagery replaces it
-  if(viewMode==='flat') drawTiles();
+  if(viewMode==='flat') drawTiles(true);
 }
 
 // A fixed vocabulary keeps the archive browsable as it grows — free text
@@ -2373,7 +2398,12 @@ function updateMeterData(dt){
   if(!vizGraphReady) return;
   anL.getFloatTimeDomainData(tdL);
   anR.getFloatTimeDomainData(tdR);
-  const rL=rmsOf(tdL), rR=rmsOf(tdR), pL=peakOf(tdL), pR=peakOf(tdR);
+  let rL=rmsOf(tdL), rR=rmsOf(tdR), pL=peakOf(tdL), pR=peakOf(tdR);
+  // Most field recordings are mono. A mono source only ever fills the left
+  // side of the splitter, which otherwise leaves the right needle/bar dead
+  // even while the sound is clearly playing — mirror L onto R so a mono
+  // clip drives both sides, the way it would out of a real mono feed.
+  if(rR<0.0008 && pR<0.0008 && (rL>=0.0008 || pL>=0.0008)){ rR=rL; pR=pL; }
 
   // Analog VU ballistic: single-pole lowpass tuned so a step reaches ~99%
   // of its target in ~300ms, matching the IEC 60268-17 VU standard.
@@ -2417,48 +2447,157 @@ function drawMeterDigital(){
   [-60,-40,-20,-6,0].forEach(v=>{ const tx=trackX+dbToX(v,trackW); x.fillRect(tx,top2+barH+3*VDPR,1,3*VDPR); x.fillText(String(v),tx,top2+barH+13*VDPR); });
   x.textAlign='left';
 }
-function drawMeterVU(){
-  fitCanvas(meterCv);
-  const w=meterCv.width,h=meterCv.height,x=meterCx;
-  x.clearRect(0,0,w,h);
-  const cx=w/2, r=h*1.65, pivotY=h*1.02;
-  const angMin=-50*Math.PI/180, angMax=50*Math.PI/180;
-  const vuT=level=>{ const vdb=20*Math.log10(Math.max(level,0.001)); return Math.min(1,Math.max(0,(vdb+20)/23)); };
-  // dial face
-  x.fillStyle='#EDE4CE';
+// The static parts of the dial (patina, ticks, red zone, brand plate, glass
+// glare, grain) never change frame to frame — only the needles move — so
+// they are painted once onto an offscreen canvas and stamped down each
+// frame. That also leaves headroom to layer on the aging texture without
+// paying for it at 60fps.
+let vuFace=null, vuFaceW=0, vuFaceH=0;
+const vuGeom=(w,h)=>({ cx:w/2, r:h*1.65, pivotY:h*1.02, angMin:-50*Math.PI/180, angMax:50*Math.PI/180 });
+function buildVUFace(w,h){
+  const face=document.createElement('canvas');
+  face.width=w; face.height=h;
+  const x=face.getContext('2d');
+  const {cx,r,pivotY,angMin,angMax}=vuGeom(w,h);
+  // Canvas arc() measures its angle from the positive x-axis, clockwise;
+  // the tick/needle math below measures from straight up. Converting
+  // between the two needs a -90 deg shift, not +90 (the dial's fill, red
+  // zone, glare and vignette were landing on the mirror-image arc below
+  // the pivot — entirely off the visible canvas — before this was -90).
+  const outerA0=angMin-Math.PI/2, outerA1=angMax-Math.PI/2;
+
+  // brushed-brass bezel ring behind the face, like a housing lip
+  x.fillStyle='#5A4A32';
   x.beginPath(); x.moveTo(cx,pivotY);
-  x.arc(cx,pivotY,r*0.98,Math.PI+angMin-Math.PI/2,Math.PI+angMax-Math.PI/2);
-  x.closePath(); x.fill();
-  // red zone (0 to +3 VU)
-  x.strokeStyle='#C24132'; x.lineWidth=3*VDPR;
+  x.arc(cx,pivotY,r*1.02,outerA0,outerA1); x.closePath(); x.fill();
+
+  // aged ivory face — warm radial gradient, darker/foxed at the rim
+  const dialGrad=x.createRadialGradient(cx,pivotY-r*0.15,r*0.05,cx,pivotY,r*1.0);
+  dialGrad.addColorStop(0,'#F3E9D2');
+  dialGrad.addColorStop(0.55,'#EBDDBE');
+  dialGrad.addColorStop(0.85,'#DFCBA0');
+  dialGrad.addColorStop(1,'#C9B588');
+  x.fillStyle=dialGrad;
+  x.beginPath(); x.moveTo(cx,pivotY);
+  x.arc(cx,pivotY,r*0.98,outerA0,outerA1); x.closePath(); x.fill();
+
+  // foxing — small warm-brown age spots, deterministic so the face is stable
+  let seed=42;
+  const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return (seed%1000)/1000; };
+  x.save();
+  x.beginPath(); x.moveTo(cx,pivotY); x.arc(cx,pivotY,r*0.98,outerA0,outerA1); x.closePath(); x.clip();
+  for(let i=0;i<46;i++){
+    const ang=outerA0+rnd()*(outerA1-outerA0), rad=r*(0.15+rnd()*0.82);
+    const px=cx+Math.cos(ang)*rad, py=pivotY+Math.sin(ang)*rad;
+    x.fillStyle=`rgba(120,90,50,${0.02+rnd()*0.05})`;
+    x.beginPath(); x.arc(px,py,1.4*VDPR+rnd()*3*VDPR,0,6.28); x.fill();
+  }
+  x.restore();
+
+  // red zone (0 to +3 VU) with a slim highlight above it
   const a0=angMin+0.87*(angMax-angMin);
-  x.beginPath(); x.arc(cx,pivotY,r*0.94,Math.PI+a0-Math.PI/2,Math.PI+angMax-Math.PI/2); x.stroke();
+  x.strokeStyle='#B23A2C'; x.lineWidth=3.2*VDPR; x.lineCap='butt';
+  x.beginPath(); x.arc(cx,pivotY,r*0.945,a0-Math.PI/2,outerA1); x.stroke();
+  x.strokeStyle='rgba(255,255,255,.35)'; x.lineWidth=0.8*VDPR;
+  x.beginPath(); x.arc(cx,pivotY,r*0.965,a0-Math.PI/2,outerA1); x.stroke();
+
   // ticks + labels
-  x.strokeStyle='rgba(20,20,25,.55)'; x.fillStyle='rgba(20,20,25,.7)'; x.font=(7*VDPR)+'px serif'; x.textAlign='center';
+  x.strokeStyle='rgba(35,26,16,.6)'; x.fillStyle='rgba(35,26,16,.78)';
+  x.font=(7*VDPR)+'px Georgia, serif'; x.textAlign='center';
   [-20,-10,-7,-5,-3,-2,-1,0,3].forEach(vu=>{
     const t=Math.min(1,Math.max(0,(vu+20)/23));
     const ang=angMin+t*(angMax-angMin);
+    const major = vu===0||vu===3||vu===-20;
     const x1=cx+Math.sin(ang)*r*0.98, y1=pivotY-Math.cos(ang)*r*0.98;
-    const x2=cx+Math.sin(ang)*r*0.88, y2=pivotY-Math.cos(ang)*r*0.88;
-    x.lineWidth=1*VDPR; x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
-    const lx=cx+Math.sin(ang)*r*0.78, ly=pivotY-Math.cos(ang)*r*0.78;
+    const x2=cx+Math.sin(ang)*r*(major?0.855:0.885), y2=pivotY-Math.cos(ang)*r*(major?0.855:0.885);
+    x.lineWidth=(major?1.5:1)*VDPR; x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
+    const lx=cx+Math.sin(ang)*r*0.775, ly=pivotY-Math.cos(ang)*r*0.775;
     x.fillText(vu>0?'+'+vu:String(vu),lx,ly);
   });
-  x.fillStyle='rgba(20,20,25,.5)'; x.font=(6.5*VDPR)+'px sans-serif'; x.fillText('VU',cx,pivotY-r*0.42);
+
+  // small arc of fine ticks between the numbered marks, for texture
+  x.strokeStyle='rgba(35,26,16,.35)'; x.lineWidth=0.6*VDPR;
+  for(let t=0;t<=1.001;t+=1/46){
+    const ang=angMin+t*(angMax-angMin);
+    const x1=cx+Math.sin(ang)*r*0.98, y1=pivotY-Math.cos(ang)*r*0.98;
+    const x2=cx+Math.sin(ang)*r*0.955, y2=pivotY-Math.cos(ang)*r*0.955;
+    x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
+  }
+
+  // brand plate
+  x.fillStyle='rgba(35,26,16,.62)'; x.font='italic '+(9*VDPR)+'px Georgia, serif';
+  x.fillText('VU', cx, pivotY-r*0.40);
+  x.font=(5.6*VDPR)+'px Georgia, serif'; x.fillStyle='rgba(35,26,16,.4)';
+  x.fillText('G L O B A L   S O U N D S', cx, pivotY-r*0.27);
   x.textAlign='left';
-  // twin needles, L and R sharing one scale — the classic stereo VU layout
+
+  // corner rivets
+  x.fillStyle='rgba(35,26,16,.5)';
+  [[cx-r*0.86,pivotY-r*0.02],[cx+r*0.86,pivotY-r*0.02]].forEach(([px,py])=>{
+    x.beginPath(); x.arc(px,py,1.6*VDPR,0,6.28); x.fill();
+  });
+
+  // glass glare — a soft diagonal streak, like a curved lens catching light
+  const glare=x.createLinearGradient(cx-r*0.7,pivotY-r,cx+r*0.5,pivotY-r*0.1);
+  glare.addColorStop(0,'rgba(255,255,255,0)');
+  glare.addColorStop(0.35,'rgba(255,255,255,.22)');
+  glare.addColorStop(0.5,'rgba(255,255,255,.08)');
+  glare.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=glare;
+  x.beginPath(); x.moveTo(cx,pivotY); x.arc(cx,pivotY,r*0.98,outerA0,outerA1); x.closePath(); x.fill();
+
+  // vignette at the rim to seat the glass into its housing
+  const vg=x.createRadialGradient(cx,pivotY-r*0.1,r*0.75,cx,pivotY-r*0.1,r*1.0);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(20,14,6,.28)');
+  x.fillStyle=vg;
+  x.beginPath(); x.moveTo(cx,pivotY); x.arc(cx,pivotY,r*0.98,outerA0,outerA1); x.closePath(); x.fill();
+
+  return face;
+}
+function drawMeterVU(){
+  fitCanvas(meterCv);
+  const w=meterCv.width,h=meterCv.height,x=meterCx;
+  if(!vuFace||vuFaceW!==w||vuFaceH!==h){ vuFace=buildVUFace(w,h); vuFaceW=w; vuFaceH=h; }
+  x.clearRect(0,0,w,h);
+  x.drawImage(vuFace,0,0);
+
+  const {cx,r,pivotY,angMin,angMax}=vuGeom(w,h);
+  const vuT=level=>{ const vdb=20*Math.log10(Math.max(level,0.001)); return Math.min(1,Math.max(0,(vdb+20)/23)); };
+
+  // twin needles, L and R sharing one scale — the classic stereo VU layout.
+  // Tapered and shadowed so they read as metal, not a flat vector line.
   const needle=(level,color,alpha)=>{
     const ang=angMin+vuT(level)*(angMax-angMin);
-    const nx=cx+Math.sin(ang)*r*0.9, ny=pivotY-Math.cos(ang)*r*0.9;
-    x.strokeStyle=color; x.globalAlpha=alpha; x.lineWidth=1.6*VDPR;
-    x.beginPath(); x.moveTo(cx,pivotY); x.lineTo(nx,ny); x.stroke();
-    x.globalAlpha=1;
+    const len=r*0.92, tipW=0.9*VDPR, baseW=2.6*VDPR;
+    const nx=Math.sin(ang), ny=-Math.cos(ang);
+    const px=-ny, py=nx;                     // perpendicular, for the taper
+    const tx=cx+nx*len, ty=pivotY+ny*len;
+    x.save();
+    x.globalAlpha=alpha;
+    x.shadowColor='rgba(20,14,6,.4)'; x.shadowBlur=2*VDPR; x.shadowOffsetY=0.6*VDPR;
+    x.fillStyle=color;
+    x.beginPath();
+    x.moveTo(cx+px*baseW, pivotY+py*baseW);
+    x.lineTo(cx-px*baseW, pivotY-py*baseW);
+    x.lineTo(tx-px*tipW, ty-py*tipW);
+    x.lineTo(tx+px*tipW, ty+py*tipW);
+    x.closePath(); x.fill();
+    x.restore();
   };
-  needle(meter.vuR,'#8B95A3',0.75);
-  needle(meter.vuL,VIZ_COLORS[vizColorKey],0.95);
-  x.fillStyle='#2A3A4D'; x.beginPath(); x.arc(cx,pivotY,3*VDPR,0,6.28); x.fill();
+  needle(meter.vuR,'#8B95A3',0.7);
+  needle(meter.vuL,VIZ_COLORS[vizColorKey],0.92);
+
+  // chrome pivot cap
+  const capR=3.4*VDPR;
+  const capGrad=x.createRadialGradient(cx-capR*0.3,pivotY-capR*0.4,0.3*VDPR,cx,pivotY,capR);
+  capGrad.addColorStop(0,'#F4F0E6'); capGrad.addColorStop(0.5,'#B8ADA0'); capGrad.addColorStop(1,'#4A4038');
+  x.fillStyle=capGrad;
+  x.beginPath(); x.arc(cx,pivotY,capR,0,6.28); x.fill();
 }
-function drawMeter(){ meterMode==='vu' ? drawMeterVU() : drawMeterDigital(); }
+function drawMeter(){
+  document.getElementById('viz-meter').classList.toggle('vu-mode', meterMode==='vu');
+  meterMode==='vu' ? drawMeterVU() : drawMeterDigital();
+}
 
 function drawBars(dt){
   fitCanvas(freqCv);
