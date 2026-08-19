@@ -1262,17 +1262,23 @@ function decodeInto(im, blob){
 
 // A tile that fails is not written off — servers throttle, connections drop.
 // It is retried a few times with a widening gap, then left to the fallback.
+//
+// Ordinary browsing never touches the device's storage: every tile is always
+// fetched live. The only tiles that ever get read from or written to disk
+// are ones the person explicitly chose to keep via "Save this area offline"
+// (see saveAreaOffline, which reads/writes disk directly and never calls
+// this function) — plus, as a last resort, falling back to whatever an
+// explicit save already has on hand if a live fetch fails outright, so that
+// deliberately-saved areas still work with no signal.
 function fetchTile(im, style, z, x, y, key, low){
   tilesPending++;
   enqueueTile(async()=>{
     try{
-      const disk=await tileFromDisk(key);
-      if(disk){
-        await decodeInto(im, disk);
-        tilesPending--; scheduleTileDraw();
-        return;
+      if(!navigator.onLine){
+        const disk=await tileFromDisk(key);
+        if(disk){ await decodeInto(im, disk); tilesPending--; scheduleTileDraw(); return; }
+        im.__failed=true; tilesPending--; scheduleTileDraw(); return;
       }
-      if(!navigator.onLine){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
       const resp=await fetch(MAP_STYLES[style].url(z,x,y), {mode:'cors'});
       // A 404/410 means this provider has no tile here (common outside a
       // basemap's covered regions at deep zoom) — that is permanent, not a
@@ -1283,11 +1289,15 @@ function fetchTile(im, style, z, x, y, key, low){
       if(resp.status===404||resp.status===410){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
       if(!resp.ok) throw new Error('http '+resp.status);
       const blob=await resp.blob();
-      tileToDisk(key,blob);
       await decodeInto(im, blob);
       tilesPending--;
       scheduleTileDraw();
     }catch(e){
+      // Live fetch failed (network hiccup, went offline mid-load) — before
+      // retrying over the network, check whether this exact tile is part of
+      // an area the person explicitly saved for offline use.
+      const disk=await tileFromDisk(key).catch(()=>null);
+      if(disk){ await decodeInto(im, disk); tilesPending--; scheduleTileDraw(); return; }
       tilesPending--;
       if(++im.__tries<3){
         setTimeout(()=>fetchTile(im,style,z,x,y,key,low), 500*Math.pow(2,im.__tries));
@@ -1422,7 +1432,13 @@ function drawTiles(force){
       // along on the same grid and is only ever a bonus: if it hasn't
       // arrived yet the base tile underneath already reads fine on its own.
       if(style.overlay){
-        const ov=getTile(style.overlay,Z,wx,ty,true);
+        // On-screen overlay tiles (hillshade/labels) must compete on equal
+        // footing with on-screen base tiles. Marking them low-priority put
+        // them behind prefetchFlat's continuous stream of buffer-tile
+        // requests in tileQueue — on Atlas, where the overlay *is* the
+        // entire visible difference, that queue rarely drained enough to
+        // let the labels through, so the map looked permanently unfixed.
+        const ov=getTile(style.overlay,Z,wx,ty);
         if(ov.__ready){
           try{
             tctx.save();
