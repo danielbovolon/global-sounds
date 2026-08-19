@@ -1135,12 +1135,29 @@ const MAP_STYLES = {
   terrain:{
     label:'Terrain', base:'map_terrain.jpg',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/${z}/${y}/${x}`,
-    max:19, credit:'Esri · USGS · NOAA · Base: Natural Earth'
+    max:19, credit:'Esri · USGS · NOAA · Base: Natural Earth',
+    // World_Topo_Map alone barely hints at elevation — it's built as a road
+    // atlas first. Esri's dedicated hillshade, multiplied on top, is what
+    // actually makes slopes and ranges read at a glance.
+    overlay:'terrain-relief', overlayBlend:'multiply', overlayAlpha:0.6
   },
   streets:{
     label:'Atlas', base:'map_atlas.jpg',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`,
-    max:16, credit:'Esri · HERE · Garmin · Base: Natural Earth'
+    max:16, credit:'Esri · HERE · Garmin · Base: Natural Earth',
+    // The "Base" service is deliberately blank — Esri ships it as a canvas
+    // meant to be paired with a Reference layer carrying every label, road
+    // and border. Without it, it's just grey shapes, which is what made
+    // this style look broken.
+    overlay:'streets-labels', overlayBlend:'source-over', overlayAlpha:1
+  },
+  'terrain-relief':{
+    url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/${z}/${y}/${x}`,
+    max:23
+  },
+  'streets-labels':{
+    url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/${z}/${y}/${x}`,
+    max:16
   }
 };
 let mapStyle='satellite';
@@ -1384,20 +1401,37 @@ function drawTiles(force){
       const want=getTile(mapStyle,Z,wx,ty);
       if(want.__ready){
         try{ tctx.drawImage(want,dx,dy,dw,dh); drew++; }catch(e){}
-        continue;
-      }
-      if(!want.__failed) waiting=true;
-
-      // Nothing should ever render as a black hole. Prefer a coarser tile we
-      // already hold; failing that, take the region straight out of the
-      // whole-world image, which is always present and works offline.
-      const alt=bestAvailable(mapStyle,Z,wx,ty);
-      if(alt){
-        const f=Math.pow(2,Z-alt.z);
-        const sxp=(wx-alt.x*f)/f*256, syp=(ty-alt.y*f)/f*256, sp=256/f;
-        try{ tctx.drawImage(alt.im, sxp,syp,sp,sp, dx,dy,dw,dh); drew++; }catch(e){}
       } else {
-        drawFromWorldImage(wx,ty,Z,n,dx,dy,dw,dh);
+        if(!want.__failed) waiting=true;
+
+        // Nothing should ever render as a black hole. Prefer a coarser tile we
+        // already hold; failing that, take the region straight out of the
+        // whole-world image, which is always present and works offline.
+        const alt=bestAvailable(mapStyle,Z,wx,ty);
+        if(alt){
+          const f=Math.pow(2,Z-alt.z);
+          const sxp=(wx-alt.x*f)/f*256, syp=(ty-alt.y*f)/f*256, sp=256/f;
+          try{ tctx.drawImage(alt.im, sxp,syp,sp,sp, dx,dy,dw,dh); drew++; }catch(e){}
+        } else {
+          drawFromWorldImage(wx,ty,Z,n,dx,dy,dw,dh);
+        }
+      }
+
+      // Some styles layer a second, purely visual tile on top of the base —
+      // a hillshade for Terrain, place/road labels for Atlas. It rides
+      // along on the same grid and is only ever a bonus: if it hasn't
+      // arrived yet the base tile underneath already reads fine on its own.
+      if(style.overlay){
+        const ov=getTile(style.overlay,Z,wx,ty,true);
+        if(ov.__ready){
+          try{
+            tctx.save();
+            tctx.globalCompositeOperation=style.overlayBlend||'source-over';
+            tctx.globalAlpha=style.overlayAlpha!=null?style.overlayAlpha:1;
+            tctx.drawImage(ov,dx,dy,dw,dh);
+            tctx.restore();
+          }catch(e){}
+        }
       }
     }
   }
@@ -1681,8 +1715,12 @@ function setMapStyle(s){
   // tiles, so the map sits on low-res fallback imagery longer than it needs
   // to (part of what reads as "mixed" tiles right after switching).
   tileQueue.length=0; tileQueueLow.length=0;
-  loadBaseTexture(s);          // shipped image shows instantly…
-  buildGlobeSkin(s);           // …then the real tile imagery replaces it
+  // The shipped image for each style is already a proper high-resolution
+  // equirectangular map — loadBaseTexture puts it up immediately. (This
+  // used to be followed by buildGlobeSkin(), which replaced it a moment
+  // later with a soft, low-zoom tile mosaic; that made every style look
+  // worse than the file sitting right next to index.html, so it's gone.)
+  loadBaseTexture(s);
   if(viewMode==='flat') drawTiles(true);
 }
 
@@ -1996,8 +2034,10 @@ document.getElementById('menu-selections').addEventListener('click',()=>{ closeM
 
 
 /* ================= CLUSTERS =================
-   Tapping a group zooms toward it so its pins separate at their real
-   coordinates. Once the map is as close as it goes, list them instead. */
+   Tapping a group steps the view in toward it — each press zooms a bit
+   closer, the way a real map does, rather than jumping straight to the
+   final scale. Once a press can no longer move in any further and the
+   pins still can't be told apart, list them instead. */
 function openCluster(ci){
   const members=lastClusters[ci];
   if(!members||members.length<2) return;
@@ -2032,14 +2072,26 @@ function openCluster(ci){
     ? Math.log2(groupPx*360/(256*closest))
     : Infinity;
 
-  // Only fall back to a list when even the closest the map goes cannot
-  // separate them — sounds recorded a few metres apart, for instance.
-  if(!isFinite(needZ) || needZ>maxZ){ showClusterList(members); return; }
+  // Where the view sits right now, on whichever mode we're in — the next
+  // step is measured from here, not from scratch each time.
+  const curZ = viewMode==='flat' ? flatZ : globeZoomToFlatZ();
 
   // Zoom so the whole group comfortably fills the view, but at least far
-  // enough to break it apart.
+  // enough to eventually break it apart.
   const fitZ=Math.log2(360*W/(256*Math.max(spanLng, spanLat)*1.8));
-  const targetZ=Math.min(maxZ, Math.max(needZ+0.4, isFinite(fitZ)?fitZ:needZ+0.4));
+  const idealZ=Math.max(isFinite(needZ)?needZ+0.4:curZ, isFinite(fitZ)?fitZ:curZ, curZ);
+  const ceiling=Math.min(maxZ, idealZ);
+
+  // One step per tap — enough to feel like real progress without
+  // overshooting straight to the destination.
+  const STEP=2.4;
+  const targetZ=Math.min(ceiling, curZ+STEP);
+
+  // Only once a tap can no longer move the view forward, and the group
+  // still can't be separated at this style's closest zoom, give up on
+  // zooming and list them instead (sounds recorded a few metres apart,
+  // for instance, closer together than any basemap tile can resolve).
+  if(targetZ<=curZ+0.08 && (!isFinite(needZ) || needZ>maxZ)){ showClusterList(members); return; }
 
   if(viewMode==='flat'){
     flyFlatTo(lat,lng,targetZ);
@@ -4000,7 +4052,6 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
   img.src=(MAP_STYLES[mapStyle]&&MAP_STYLES[mapStyle].base)||'earth.jpg';
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===mapStyle));
-  setTimeout(()=>buildGlobeSkin(mapStyle), 300);    // right after first paint
   db=await openDB();
   storageOK=!!db;
   let localCache=[];
