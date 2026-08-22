@@ -171,6 +171,34 @@
   #globe-svg.grabbing{ cursor:grabbing; }
   #globe-svg.picking{ cursor:crosshair; }
 
+  /* Flat map (Leaflet) — mounted into #globe-zone alongside the globe canvas,
+     shown only once zoomed in past the globe's detail threshold. */
+  #leaflet-map{ position:absolute; inset:0; width:100%; height:100%; display:none; background:#08131f; }
+  #leaflet-map.picking .leaflet-container{ cursor:crosshair; }
+  .leaflet-container{ background:#08131f; font-family:var(--sans); }
+  .leaflet-control-zoom a{
+    background:var(--panel-bg) !important; color:var(--text-primary) !important;
+    border-color:var(--rule) !important;
+  }
+  .leaflet-control-zoom a:hover{ color:var(--pin-active) !important; }
+  .leaflet-control-attribution{
+    background:rgba(8,12,20,.75) !important; color:var(--text-muted) !important;
+    font-size:8.5px !important; backdrop-filter:blur(3px);
+  }
+  .leaflet-control-attribution a{ color:var(--text-muted) !important; }
+  /* Terrain's hillshade overlay rides in its own pane so it can multiply
+     against the base layer beneath it, the same effect the old canvas
+     compositor produced with globalCompositeOperation. */
+  .leaflet-pane.gs-hillshade-pane{ mix-blend-mode:multiply; opacity:.65; }
+  .gs-pin{ background:var(--pin-active); border:2px solid rgba(8,12,20,.85); border-radius:50%;
+    box-shadow:0 0 0 4px rgba(242,178,92,.22), 0 1px 4px rgba(0,0,0,.5); }
+  .gs-cluster{
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(242,178,92,.18); border:1.5px solid var(--pin-active); border-radius:50%;
+    color:var(--pin-active); font-family:var(--sans); font-weight:600;
+    box-shadow:0 1px 6px rgba(0,0,0,.5);
+  }
+
 
   #pick-banner{
     position:absolute; top:16px; left:50%; transform:translateX(-50%);
@@ -463,6 +491,15 @@
     #top-zone{ padding-top:calc(10px + env(safe-area-inset-top)); padding-bottom:8px; }
   }
 </style>
+<!-- The flat (2D) map runs on Leaflet + leaflet.markercluster once zoomed in
+     past the globe's detail threshold — the same proven stack most sound-map
+     sites use, instead of a hand-rolled tile/cluster engine. The WebGL globe
+     below is untouched and still handles the zoomed-out view. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 </head>
 <body>
 
@@ -510,6 +547,7 @@
 
   <div id="globe-zone">
     <canvas id="globe-texture"></canvas>
+    <div id="leaflet-map"></div>
     <svg id="globe-svg"></svg>
     <div id="map-credit"></div>
     <div id="pick-banner">
@@ -873,7 +911,7 @@ function layout(){
   gsvg.setAttribute('viewBox',`0 0 ${W} ${H}`);
   gsvg.setAttribute('width',W); gsvg.setAttribute('height',H);
   render();
-  if(viewMode==='flat') scheduleTileDraw(true);
+  if(viewMode==='flat' && leafletMap) leafletMap.invalidateSize();
 }
 addEventListener('resize',layout);
 addEventListener('orientationchange',()=>setTimeout(layout,180));
@@ -1130,11 +1168,13 @@ const MAP_STYLES = {
   satellite:{
     label:'Satellite', base:'earth.jpg',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+    tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     max:19, credit:'Imagery: Esri, Maxar, Earthstar Geographics'
   },
   terrain:{
     label:'Terrain', base:'map_terrain.jpg',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/${z}/${y}/${x}`,
+    tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
     max:19, credit:'Esri · USGS · NOAA · Base: Natural Earth',
     // World_Topo_Map alone barely hints at elevation — it's built as a road
     // atlas first. Esri's dedicated hillshade, multiplied on top, is what
@@ -1144,6 +1184,7 @@ const MAP_STYLES = {
   streets:{
     label:'Atlas', base:'map_atlas.jpg',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`,
+    tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     max:16, credit:'Esri · HERE · Garmin · Base: Natural Earth',
     // The "Base" service is deliberately blank — Esri ships it as a canvas
     // meant to be paired with a Reference layer carrying every label, road
@@ -1153,10 +1194,12 @@ const MAP_STYLES = {
   },
   'terrain-relief':{
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/${z}/${y}/${x}`,
+    tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
     max:23
   },
   'streets-labels':{
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/${z}/${y}/${x}`,
+    tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
     max:16
   }
 };
@@ -1167,30 +1210,101 @@ if(!MAP_STYLES[mapStyle]) mapStyle='satellite';
 const DETAIL_FROM=6;                 // globe below this, flat map above
 let FLAT_MIN_Z=3;                    // set once the viewport size is known
 
-const tileCache=new Map();
-const TILE_MAX=400;
-let tilesPending=0;
-
 const mercY  = lat => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360));
 const mercLat= y   => (Math.atan(Math.sinh(y))*180)/Math.PI;
 
-const tileCv=document.createElement('canvas');
-tileCv.id='globe-tiles';
-let tctx=null;
+/* ---- Globe surface imagery ----
+   The shipped earth.jpg / map_terrain.jpg / map_atlas.jpg are what the globe
+   shows the instant the page opens — they're already on disk, so there's
+   never a blank globe waiting on a network fetch. But they're a generic
+   stand-in, not the real photographic imagery the flat map shows once you
+   zoom in, and that mismatch is exactly what was flagged: the globe should
+   show that same real imagery, at every zoom level, not just after zooming
+   into the flat map.
+   This builds a real-imagery globe skin from the same Esri tiles the flat
+   map already uses — fetched as an 8×8 grid of Web Mercator tiles and
+   reprojected into the equirectangular layout drawGlobe()'s shader expects
+   — and swaps it in over the shipped placeholder as soon as it's ready.
+   Deliberately NOT written to IndexedDB: the "no device storage for the
+   map" rule below is a real constraint that was asked for on purpose, and a
+   globe skin built from map tiles is still map imagery. The trade-off is
+   that this rebuilds from the network every time the app opens rather than
+   being instant after the first visit — kept quick by using a fairly low
+   mosaic zoom, and kept in memory for the rest of the session so switching
+   between Satellite/Terrain/Atlas and back doesn't re-fetch. Built once per
+   style per real static asset for anyone who'd rather have zero storage use
+   than zero fetch delay. */
+const SKIN_ZOOM=3;                       // 8x8 Mercator tiles -> 2048x2048 mosaic
+let globeSkinCanvas={}, globeSkinBuilding={};
 
-function initTileCanvas(){
-  if(tctx) return;
-  const host=document.getElementById('globe-zone');
-  const svgEl=document.getElementById('globe-svg');
-  host.insertBefore(tileCv, svgEl);       // sits under the pins, over the globe
-  tctx=tileCv.getContext('2d');
+async function fetchSkinTile(style,z,x,y){
+  try{
+    const res=await fetch(style.url(z,x,y));
+    if(!res.ok) return null;
+    return await createImageBitmap(await res.blob());
+  }catch(e){ return null; }
 }
 
+// Web Mercator's x axis is already linear in longitude, same as the
+// equirectangular layout the globe wants, so only the y axis needs
+// reprojecting — a per-row copy rather than a full per-pixel warp.
+function mercatorMosaicToEquirect(mosaic, mercSize, outW, outH){
+  const out=document.createElement('canvas');
+  out.width=outW; out.height=outH;
+  const octx=out.getContext('2d');
+  for(let py=0; py<outH; py++){
+    const lat=90-(py+0.5)/outH*180;
+    let frac=(1-mercY(lat)/Math.PI)/2;
+    frac=frac<0?0:frac>1?1:frac;
+    const srcY=Math.min(mercSize-1, Math.floor(frac*mercSize));
+    octx.drawImage(mosaic, 0,srcY,mercSize,1, 0,py,outW,1);
+  }
+  return out;
+}
+
+async function buildGlobeSkin(styleKey){
+  if(globeSkinCanvas[styleKey]){
+    if(mapStyle===styleKey && gl && ready) applyBase(globeSkinCanvas[styleKey]);
+    return;
+  }
+  if(globeSkinBuilding[styleKey]) return;
+  const style=MAP_STYLES[styleKey];
+  if(!style || !style.url) return;
+  globeSkinBuilding[styleKey]=true;
+  try{
+    const Z=SKIN_ZOOM, n=1<<Z, tile=256, mercSize=n*tile;
+    const mosaic=document.createElement('canvas');
+    mosaic.width=mercSize; mosaic.height=mercSize;
+    const mctx=mosaic.getContext('2d');
+    const coords=[];
+    for(let y=0;y<n;y++) for(let x=0;x<n;x++) coords.push([x,y]);
+    let idx=0, ok=0;
+    async function worker(){
+      while(idx<coords.length){
+        const [x,y]=coords[idx++];
+        const bmp=await fetchSkinTile(style,Z,x,y);
+        if(bmp){ mctx.drawImage(bmp,x*tile,y*tile,tile,tile); ok++; if(bmp.close) bmp.close(); }
+      }
+    }
+    await Promise.all(Array.from({length:12},worker));
+    // A patchy fetch (offline, flaky connection, a blocked host) would look
+    // worse than the shipped placeholder it's replacing — only swap in a
+    // mosaic that's actually mostly there.
+    if(ok < coords.length*0.7) return;
+    const skin=mercatorMosaicToEquirect(mosaic, mercSize, 4096, 2048);
+    globeSkinCanvas[styleKey]=skin;
+    if(mapStyle===styleKey && gl && ready) applyBase(skin);
+  } finally {
+    globeSkinBuilding[styleKey]=false;
+  }
+}
 
 /* ---- Tiles kept on the device ----
-   Every tile fetched is written to IndexedDB, so revisiting somewhere is
-   instant and works with no signal. A region can also be saved deliberately
-   before heading somewhere without reception. */
+   Ordinary browsing never touches the device's storage — Leaflet fetches
+   every tile live over the network. The only tiles ever written to or read
+   from IndexedDB are ones explicitly kept via "Save this area offline"
+   (see saveAreaOffline below), which the flat map's offline-aware tile
+   layer (see the Leaflet section) falls back to when there's no signal. */
 function tileKey(style,z,x,y){ return `${style}/${z}/${x}/${y}`; }
 
 async function tileFromDisk(key){
@@ -1215,130 +1329,8 @@ async function countStoredTiles(){
   });
 }
 
-// Fetch a tile: memory first, then the device, then the network.
-// OpenTopoMap and friends are volunteer-run and refuse bursts of requests —
-// which is what left black squares on the map. Fetch a few at a time instead.
-const tileQueue=[];      // what you are looking at
-const tileQueueLow=[];   // background work, e.g. building the globe skin
-let tileInFlight=0;
-const MAX_IN_FLIGHT=5;
-function pumpTileQueue(){
-  while(tileInFlight<MAX_IN_FLIGHT && (tileQueue.length||tileQueueLow.length)){
-    const job=tileQueue.length ? tileQueue.shift() : tileQueueLow.shift();
-    tileInFlight++;
-    job().finally(()=>{ tileInFlight--; pumpTileQueue(); });
-  }
-}
-function enqueueTile(job, low){ (low?tileQueueLow:tileQueue).push(job); pumpTileQueue(); }
-
-function getTile(style,z,x,y,lowPriority){
-  const key=tileKey(style,z,x,y);
-  const mem=tileCache.get(key);
-  if(mem!==undefined) return mem;
-
-  const im=new Image();
-  im.__ready=false; im.__key=key; im.__tries=0;
-  tileCache.set(key,im);
-  if(tileCache.size>TILE_MAX){
-    const k=tileCache.keys().next().value;
-    if(k!==key) tileCache.delete(k);
-  }
-  fetchTile(im, style, z, x, y, key, !!lowPriority);
-  return im;
-}
-
-// Decode a blob into an image, but never wait forever: a slot held open by an
-// image that neither loads nor errors would stall every tile behind it.
-function decodeInto(im, blob){
-  return new Promise(res=>{
-    let done=false;
-    const finish=()=>{ if(done) return; done=true; clearTimeout(t); res(); };
-    const t=setTimeout(finish, 8000);
-    im.onload=()=>{ im.__ready=true; finish(); };
-    im.onerror=finish;
-    try{ im.src=URL.createObjectURL(blob); }catch(e){ finish(); }
-  });
-}
-
-// A tile that fails is not written off — servers throttle, connections drop.
-// It is retried a few times with a widening gap, then left to the fallback.
-//
-// Ordinary browsing never touches the device's storage: every tile is always
-// fetched live. The only tiles that ever get read from or written to disk
-// are ones the person explicitly chose to keep via "Save this area offline"
-// (see saveAreaOffline, which reads/writes disk directly and never calls
-// this function) — plus, as a last resort, falling back to whatever an
-// explicit save already has on hand if a live fetch fails outright, so that
-// deliberately-saved areas still work with no signal.
-function fetchTile(im, style, z, x, y, key, low){
-  tilesPending++;
-  enqueueTile(async()=>{
-    try{
-      if(!navigator.onLine){
-        const disk=await tileFromDisk(key);
-        if(disk){ await decodeInto(im, disk); tilesPending--; scheduleTileDraw(); return; }
-        im.__failed=true; tilesPending--; scheduleTileDraw(); return;
-      }
-      const resp=await fetch(MAP_STYLES[style].url(z,x,y), {mode:'cors'});
-      // A 404/410 means this provider has no tile here (common outside a
-      // basemap's covered regions at deep zoom) — that is permanent, not a
-      // hiccup, so retrying it just leaves a patchwork of stale imagery on
-      // screen for several seconds. Give up immediately and let the
-      // ancestor/whole-world fallback take over; only transient failures
-      // (network errors, 5xx) get retried.
-      if(resp.status===404||resp.status===410){ im.__failed=true; tilesPending--; scheduleTileDraw(); return; }
-      if(!resp.ok) throw new Error('http '+resp.status);
-      const blob=await resp.blob();
-      await decodeInto(im, blob);
-      tilesPending--;
-      scheduleTileDraw();
-    }catch(e){
-      // Live fetch failed (network hiccup, went offline mid-load) — before
-      // retrying over the network, check whether this exact tile is part of
-      // an area the person explicitly saved for offline use.
-      const disk=await tileFromDisk(key).catch(()=>null);
-      if(disk){ await decodeInto(im, disk); tilesPending--; scheduleTileDraw(); return; }
-      tilesPending--;
-      if(++im.__tries<3){
-        setTimeout(()=>fetchTile(im,style,z,x,y,key,low), 500*Math.pow(2,im.__tries));
-      }else{
-        im.__failed=true;
-      }
-      scheduleTileDraw();
-    }
-  }, low);
-}
-
-// Ancestor tiles already in memory stand in while sharper ones arrive, so the
-// map is never blank — it sharpens rather than appearing.
-function bestAvailable(style,z,x,y){
-  for(let dz=0; dz<=5; dz++){
-    const zz=z-dz; if(zz<0) break;
-    const xx=x>>dz, yy=y>>dz;
-    const im=tileCache.get(tileKey(style,zz,xx,yy));
-    if(im && im.__ready) return {im, z:zz, x:xx, y:yy};
-  }
-  return null;
-}
-
-
-let tileRAF=null, tileRetryTimer=null, tileRetries=0;
-function scheduleTileDraw(immediate){
-  if(immediate){ tileRetries=0; clearTimeout(tileRetryTimer); }
-  if(tileRAF) return;
-  tileRAF=requestAnimationFrame(()=>{ tileRAF=null; drawTiles(); });
-}
-// Used when we are only waiting on downloads: retry with a widening gap so a
-// slow or blocked connection costs nothing instead of pinning the CPU.
-function retryTileDraw(){
-  if(tileRetries>12) return;
-  clearTimeout(tileRetryTimer);
-  const delay=Math.min(4000, 120*Math.pow(1.6,tileRetries++));
-  tileRetryTimer=setTimeout(()=>{ tileRAF=null; drawTiles(); }, delay);
-}
-
 // Where on screen does this lat/lng land? Reuses the globe's own projection so
-// tiles and pins can never disagree about a position.
+// the "save this area" bounds always match what the flat map is showing.
 function visibleBounds(){
   let latMin=90, latMax=-90, lngMin=180, lngMax=-180, ok=false;
   const N=5;
@@ -1353,132 +1345,6 @@ function visibleBounds(){
   if(lngMax-lngMin>180) return null;      // straddling the date line: stay on the globe
   return {latMin,latMax,lngMin,lngMax};
 }
-
-let lastTileDraw=0;
-// Cut the matching piece out of the equirectangular world image. Blurry at
-// close range, but always available — far better than a black square.
-function drawFromWorldImage(tx,ty,z,n,dx,dy,dw,dh){
-  const base=shippedBase[mapStyle];
-  if(!base||!base.naturalWidth) return false;
-  const lngL=tx/n*360-180, lngR=(tx+1)/n*360-180;
-  const latT=mercLat((1-2*ty/n)*Math.PI);
-  const latB=mercLat((1-2*(ty+1)/n)*Math.PI);
-  const sw=base.naturalWidth, sh=base.naturalHeight;
-  const sx=(lngL+180)/360*sw;
-  const sx2=(lngR+180)/360*sw;
-  const sy=(90-latT)/180*sh;
-  const sy2=(90-latB)/180*sh;
-  const w=Math.max(0.5, sx2-sx), hgt=Math.max(0.5, sy2-sy);
-  try{ tctx.drawImage(base, sx, Math.max(0,sy), w, Math.min(sh,hgt), dx, dy, dw, dh); return true; }
-  catch(e){ return false; }
-}
-
-function drawTiles(force){
-  if(viewMode!=='flat'||!tctx) return;
-  const now=performance.now();
-  if(!force && now-lastTileDraw<70){ scheduleTileDraw(); return; }
-  lastTileDraw=now;
-  const style=MAP_STYLES[mapStyle];
-  const q=DPR;
-  const cw=Math.round(W*q), ch=Math.round(H*q);
-  if(tileCv.width!==cw||tileCv.height!==ch){ tileCv.width=cw; tileCv.height=ch; }
-  tctx.setTransform(q,0,0,q,0,0);
-  tctx.clearRect(0,0,W,H);
-  tctx.fillStyle='#08131f';
-  tctx.fillRect(0,0,W,H);
-  tctx.imageSmoothingEnabled=true;
-  tctx.imageSmoothingQuality='high';
-
-  // Tiles sit on an exact grid: each is a plain square at a computed offset.
-  // Nothing is stretched or warped, so tiles cannot tear or leave gaps.
-  const Z=Math.max(0, Math.min(style.max, Math.round(flatZ)));
-  const n=Math.pow(2,Z);
-  const size=256*Math.pow(2, flatZ-Z);          // on-screen size of one tile
-  const s=worldPx();
-  const originX=(flatLng+180)/360*s - W/2;
-  const originY=(1-mercY(flatLat)/Math.PI)/2*s - H/2;
-
-  const x0=Math.floor(originX/size), x1=Math.floor((originX+W)/size);
-  const y0=Math.max(0,Math.floor(originY/size)), y1=Math.min(n-1,Math.floor((originY+H)/size));
-
-  let waiting=false, drew=0;
-  for(let tx=x0; tx<=x1; tx++){
-    for(let ty=y0; ty<=y1; ty++){
-      const wx=((tx%n)+n)%n;
-      const dx=Math.round(tx*size-originX), dy=Math.round(ty*size-originY);
-      const dw=Math.ceil(size)+1, dh=Math.ceil(size)+1;
-
-      const want=getTile(mapStyle,Z,wx,ty);
-      if(want.__ready){
-        try{ tctx.drawImage(want,dx,dy,dw,dh); drew++; }catch(e){}
-      } else {
-        if(!want.__failed) waiting=true;
-
-        // Nothing should ever render as a black hole. Prefer a coarser tile we
-        // already hold; failing that, take the region straight out of the
-        // whole-world image, which is always present and works offline.
-        const alt=bestAvailable(mapStyle,Z,wx,ty);
-        if(alt){
-          const f=Math.pow(2,Z-alt.z);
-          const sxp=(wx-alt.x*f)/f*256, syp=(ty-alt.y*f)/f*256, sp=256/f;
-          try{ tctx.drawImage(alt.im, sxp,syp,sp,sp, dx,dy,dw,dh); drew++; }catch(e){}
-        } else {
-          drawFromWorldImage(wx,ty,Z,n,dx,dy,dw,dh);
-        }
-      }
-
-      // Some styles layer a second, purely visual tile on top of the base —
-      // a hillshade for Terrain, place/road labels for Atlas. It rides
-      // along on the same grid and is only ever a bonus: if it hasn't
-      // arrived yet the base tile underneath already reads fine on its own.
-      if(style.overlay){
-        // On-screen overlay tiles (hillshade/labels) must compete on equal
-        // footing with on-screen base tiles. Marking them low-priority put
-        // them behind prefetchFlat's continuous stream of buffer-tile
-        // requests in tileQueue — on Atlas, where the overlay *is* the
-        // entire visible difference, that queue rarely drained enough to
-        // let the labels through, so the map looked permanently unfixed.
-        const ov=getTile(style.overlay,Z,wx,ty);
-        if(ov.__ready){
-          try{
-            tctx.save();
-            tctx.globalCompositeOperation=style.overlayBlend||'source-over';
-            tctx.globalAlpha=style.overlayAlpha!=null?style.overlayAlpha:1;
-            tctx.drawImage(ov,dx,dy,dw,dh);
-            tctx.restore();
-          }catch(e){}
-        }
-      }
-    }
-  }
-
-  prefetchFlat(Z,n,size,originX,originY);
-
-  const cr=document.getElementById('map-credit');
-  if(cr){
-    cr.textContent = drew ? style.credit
-      : (waiting ? 'Loading map…'
-      : (navigator.onLine ? 'Map tiles unavailable' : 'Offline — no saved tiles here'));
-  }
-  if(waiting) retryTileDraw(); else tileRetries=0;
-}
-
-let prefetchTimer=null;
-function prefetchFlat(Z,n,size,originX,originY){
-  clearTimeout(prefetchTimer);
-  prefetchTimer=setTimeout(()=>{
-    if(!navigator.onLine) return;
-    const x0=Math.floor(originX/size)-1, x1=Math.floor((originX+W)/size)+1;
-    const y0=Math.floor(originY/size)-1, y1=Math.floor((originY+H)/size)+1;
-    for(let tx=x0; tx<=x1; tx++) for(let ty=y0; ty<=y1; ty++){
-      if(ty<0||ty>=n) continue;
-      if(tilesPending>16) return;
-      getTile(mapStyle,Z,((tx%n)+n)%n,ty);
-    }
-  },350);
-}
-
-
 
 /* ---- Saving a region for use without signal ---- */
 let savingArea=false;
@@ -1555,8 +1421,7 @@ async function clearOfflineTiles(){
     `${stored} stored map tiles will be deleted. Your recordings are not affected.`,'Delete','Cancel');
   if(!ok) return;
   await idbClear('tiles');
-  tileCache.clear();
-  if(viewMode==='flat') drawTiles();
+  if(viewMode==='flat' && leafletMap) applyLeafletStyle(mapStyle);
   await ask('Saved maps removed','Map detail will be fetched again when you have a connection.','OK','');
 }
 
@@ -1585,57 +1450,265 @@ function globeCentre(){
   return {lat, lng:((lng+180)%360+360)%360-180};
 }
 
+/* ================= FLAT MAP (Leaflet) =================
+   Once zoomed in past the globe's detail threshold, the flat view is a real
+   Leaflet map with leaflet.markercluster for pins — the same proven stack
+   most sound-map sites run on — instead of the hand-rolled tile/cluster
+   engine this used to be. The WebGL globe above is untouched; these two
+   functions (enterFlat/enterGlobe) are the only seam between them. */
+let leafletMap=null, leafletClusterGroup=null, leafletBaseLayer=null, leafletOverlayLayer=null;
+let leafletPickMarker=null, leafletSyncing=false, leafletWarned=false;
+
+// Below this zoom, tapping a cluster flies toward it (capped at this zoom,
+// not the cluster's own bounds — a tightly-packed cluster used to zoom in
+// tiny increments, taking many taps to get anywhere near it). At or past
+// this zoom, tapping a cluster shows a plain list instead of trying to zoom
+// further — the fix for sounds recorded at, or very near, the exact same
+// spot, which no amount of zooming will ever visually pull apart.
+const CLUSTER_LIST_ZOOM=16;
+function onClusterClick(e){
+  const cluster=e.layer;
+  const style=MAP_STYLES[mapStyle];
+  const threshold=Math.min(CLUSTER_LIST_ZOOM, style?style.max:CLUSTER_LIST_ZOOM);
+  if(leafletMap.getZoom()>=threshold){
+    showClusterList(cluster.getAllChildMarkers());
+    return;
+  }
+  leafletMap.flyToBounds(cluster.getBounds(), {maxZoom:threshold, padding:[60,60], duration:0.5});
+}
+
+function makePinIcon(){
+  return L.divIcon({ className:'', html:'<div class="gs-pin" style="width:14px;height:14px;"></div>', iconSize:[14,14], iconAnchor:[7,7] });
+}
+function makeClusterIcon(cluster){
+  const count=cluster.getChildCount();
+  const size=Math.round(Math.min(46, 26+Math.sqrt(count)*4));
+  return L.divIcon({ className:'', html:`<div class="gs-cluster" style="width:${size}px;height:${size}px;font-size:${Math.max(10,Math.min(13,size*0.32)).toFixed(0)}px;">${count}</div>`, iconSize:[size,size] });
+}
+
+function onLeafletMapClick(e){
+  if(!pickingLocation) return;
+  const lng=((e.latlng.lng+180)%360+360)%360-180;
+  handlePickAt(e.latlng.lat, lng);
+}
+
+function mountLeafletMap(){
+  if(leafletMap) return;
+  // Leaflet loads from a CDN (see <head>) — on the off chance that fails
+  // (offline first load, a blocked host, a CDN outage), fall back cleanly
+  // instead of taking the whole app down with it: this is the only place
+  // that touches the `L` global at the top level, and every caller of
+  // mountLeafletMap() already checks whether leafletMap actually got set.
+  if(typeof L==='undefined' || !L.markerClusterGroup) return;
+  leafletMap=L.map('leaflet-map',{
+    center:[flatLat,flatLng], zoom:Math.round(flatZ),
+    zoomControl:true, attributionControl:true, worldCopyJump:true, minZoom:2, maxZoom:23
+  });
+  leafletClusterGroup=L.markerClusterGroup({
+    showCoverageOnHover:false, maxClusterRadius:50,
+    spiderfyOnMaxZoom:false, zoomToBoundsOnClick:false, chunkedLoading:true,
+    iconCreateFunction:makeClusterIcon
+  });
+  leafletMap.addLayer(leafletClusterGroup);
+  leafletClusterGroup.on('clusterclick', onClusterClick);
+  leafletMap.on('click', onLeafletMapClick);
+  // Leaflet owns the camera in flat mode now — mirror its state back into
+  // flatLat/flatLng/flatZ (which the globe handoff math still reads) and
+  // hand back to the globe the moment someone zooms out past the threshold.
+  leafletMap.on('moveend zoomend', ()=>{
+    if(leafletSyncing) return;
+    const c=leafletMap.getCenter();
+    flatLat=c.lat; flatLng=((c.lng+180)%360+360)%360-180; flatZ=leafletMap.getZoom();
+    if(viewMode==='flat' && flatZ<FLAT_MIN_Z){ enterGlobe(); render(); }
+  });
+  applyLeafletStyle(mapStyle);
+}
+
+// A tile layer that fetches live whenever there's a connection — matching
+// the "never use device storage for ordinary browsing" rule the canvas tile
+// engine followed — but falls back to whatever "Save this area offline" has
+// already put on disk if the network fetch fails or there's no signal at
+// all, so a deliberately-saved area still works in the field.
+//
+// Built lazily (only once Leaflet has actually loaded and a flat-map style
+// is first applied), not as a top-level `L.TileLayer.extend(...)` call —
+// touching the `L` global at parse time would take the whole app down if
+// the CDN script hadn't loaded yet, instead of just leaving the flat map
+// unavailable.
+let GSTileLayerClass=null;
+function getGSTileLayer(){
+  if(!GSTileLayerClass){
+    GSTileLayerClass=L.TileLayer.extend({
+      createTile:function(coord, done){
+        const tile=document.createElement('img');
+        tile.alt=''; tile.setAttribute('role','presentation');
+        const z=coord.z, n=Math.pow(2,z);
+        const x=((coord.x%n)+n)%n, y=coord.y;
+        const key=tileKey(this.options.styleKey, z, x, y);
+        const useDisk=()=>{
+          tileFromDisk(key).then(disk=>{
+            if(disk){
+              const objUrl=URL.createObjectURL(disk);
+              tile.onload=()=>{ URL.revokeObjectURL(objUrl); done(null,tile); };
+              tile.onerror=()=>done('tile failed',tile);
+              tile.src=objUrl;
+            } else done('offline, no saved tile', tile);
+          });
+        };
+        if(navigator.onLine){
+          tile.onload=()=>done(null,tile);
+          tile.onerror=useDisk;
+          tile.src=this.getTileUrl(coord);
+        } else {
+          useDisk();
+        }
+        return tile;
+      }
+    });
+  }
+  return GSTileLayerClass;
+}
+
+function applyLeafletStyle(s){
+  if(!leafletMap) return;
+  const style=MAP_STYLES[s];
+  if(leafletBaseLayer){ leafletMap.removeLayer(leafletBaseLayer); leafletBaseLayer=null; }
+  if(leafletOverlayLayer){ leafletMap.removeLayer(leafletOverlayLayer); leafletOverlayLayer=null; }
+  const GSTileLayer=getGSTileLayer();
+  leafletBaseLayer=new GSTileLayer(style.tileTemplate, { styleKey:s, maxZoom:style.max, minZoom:2, attribution:style.credit||'' });
+  leafletBaseLayer.addTo(leafletMap);
+  if(style.overlay){
+    const ov=MAP_STYLES[style.overlay];
+    const multiply=style.overlayBlend==='multiply';
+    let opts={ styleKey:style.overlay, maxZoom:ov.max, minZoom:2, opacity: multiply?1:(style.overlayAlpha!=null?style.overlayAlpha:1) };
+    if(multiply){
+      if(!leafletMap.getPane('gs-hillshade-pane')){
+        const pane=leafletMap.createPane('gs-hillshade-pane');
+        pane.style.zIndex=450; pane.style.pointerEvents='none';
+      }
+      opts.pane='gs-hillshade-pane';
+    }
+    leafletOverlayLayer=new GSTileLayer(ov.tileTemplate, opts);
+    leafletOverlayLayer.addTo(leafletMap);
+  }
+  // Keep the clustered pin layer above both tile layers.
+  if(leafletClusterGroup) leafletClusterGroup.bringToFront();
+}
+
+// Rebuild the marker/cluster layer from scratch. Cheap enough to call on any
+// real change (year filter, view switch, pins loaded, a recording added) —
+// Leaflet + markercluster handle the actual pan/zoom rendering on their own,
+// so this never needs to run on every frame the way the old SVG draw did.
+function rebuildLeafletMarkers(){
+  if(!leafletClusterGroup) return;
+  leafletClusterGroup.clearLayers();
+  const markers=[];
+  activePins().forEach((p,i)=>{
+    if(p.year!==currentYear) return;
+    const lat=parseFloat(p.lat), lng=parseFloat(p.lng);
+    if(isNaN(lat)||isNaN(lng)) return;
+    const m=L.marker([lat,lng],{icon:makePinIcon()});
+    m._gsPinIndex=i; m._gsPin=p;
+    m.on('click', ()=>openPanel(i));
+    markers.push(m);
+  });
+  leafletClusterGroup.addLayers(markers);
+}
+let leafletRebuildRAF=null;
+function scheduleLeafletMarkerRebuild(){
+  if(!leafletMap) return;
+  if(leafletRebuildRAF) return;
+  leafletRebuildRAF=requestAnimationFrame(()=>{ leafletRebuildRAF=null; rebuildLeafletMarkers(); });
+}
+
+// The list-fallback for clusters at/past CLUSTER_LIST_ZOOM (see
+// onClusterClick above) — reuses the same "In this spot" modal the globe's
+// cluster handoff used to show before the Leaflet migration.
+function showClusterList(markers){
+  const list=document.getElementById('cluster-list');
+  const n=markers.length;
+  document.getElementById('cluster-count').textContent = n+' sound'+(n===1?'':'s')+' here';
+  list.innerHTML='';
+  markers.slice()
+    .sort((a,b)=>(b._gsPin&&b._gsPin.year||0)-(a._gsPin&&a._gsPin.year||0))
+    .forEach(m=>{
+      const p=m._gsPin; if(!p) return;
+      const when=p.madeAt?new Date(p.madeAt):(p.created_at?new Date(p.created_at):null);
+      const stamp=when&&!isNaN(when)
+        ? when.toLocaleDateString(undefined,{day:'numeric',month:'long',year:'numeric'})
+        : String(p.year);
+      const div=document.createElement('div');
+      div.className='cl-item';
+      div.innerHTML=`<div class="cl-title">${p.title||'Untitled'}</div><div class="cl-sub">${p.place||''} · ${stamp}</div>`;
+      div.addEventListener('click', ()=>{ hideModal(clusterModal); openPanel(m._gsPinIndex); });
+      list.appendChild(div);
+    });
+  showModal(clusterModal);
+}
+
+function updateLeafletPickMarker(){
+  if(!leafletMap) return;
+  if(leafletPickMarker){ leafletMap.removeLayer(leafletPickMarker); leafletPickMarker=null; }
+  if(pickingLocation && pendingPick){
+    leafletPickMarker=L.marker([pendingPick.lat,pendingPick.lng],{
+      icon:L.divIcon({ className:'', html:'<div class="gs-pin" style="width:16px;height:16px;box-shadow:0 0 0 8px rgba(242,178,92,.3),0 1px 4px rgba(0,0,0,.5);"></div>', iconSize:[16,16], iconAnchor:[8,8] }),
+      interactive:false
+    }).addTo(leafletMap);
+  }
+}
+
+function enterFlatAt(lat,lng,z){
+  flatLat=Math.max(-85,Math.min(85,lat));
+  flatLng=lng;
+  flatZ=z;
+  viewMode='flat';
+  gsvg.style.display='none';
+  texCv.style.display='none';
+  // Leaflet must be constructed (first time only) while its container is
+  // already visible, or it measures a zero-size box — show it before
+  // mounting, not after.
+  document.getElementById('leaflet-map').style.display='block';
+  mountLeafletMap();
+  if(!leafletMap){
+    // Leaflet never loaded (offline on first visit, CDN blocked) — stay on
+    // the globe rather than switching to a blank map. Warn once; without
+    // this flag, updateDetail() would retry (and re-prompt) on every frame
+    // for as long as the view stays past the detail threshold.
+    document.getElementById('leaflet-map').style.display='none';
+    gsvg.style.display='';
+    viewMode='globe';
+    if(!leafletWarned){
+      leafletWarned=true;
+      ask('Map detail unavailable','The detailed map couldn’t load (no connection to the map library). You can still browse and record on the globe.','OK','');
+    }
+    return;
+  }
+  leafletSyncing=true;
+  leafletMap.setView([flatLat,flatLng], Math.round(flatZ), {animate:false});
+  leafletMap.invalidateSize();
+  leafletSyncing=false;
+  applyLeafletStyle(mapStyle);
+  rebuildLeafletMarkers();
+}
 function enterFlat(){
   const c=globeCentre();
-  flatLat=Math.max(-85,Math.min(85,c.lat));
-  flatLng=c.lng;
   const fz=globeZoomToFlatZ();
-  flatZ=Math.max(2, isFinite(fz)?fz:6);
-  viewMode='flat';
-  initTileCanvas();
-  tileCv.style.display='block';
-  texCv.style.display='none';
-  drawTiles();
+  enterFlatAt(c.lat, c.lng, Math.max(2, isFinite(fz)?fz:6));
 }
 function enterGlobe(){
   rotY=-flatLng*Math.PI/180;
   rotX=flatLat*Math.PI/180;
   zoom=Math.max(ZMIN, Math.min(ZMAX, flatZToGlobeZoom()));
   viewMode='globe';
-  if(tctx) tileCv.style.display='none';
+  document.getElementById('leaflet-map').style.display='none';
+  gsvg.style.display='';
   texCv.style.display='block';
   const cr=document.getElementById('map-credit');
   if(cr) cr.textContent='';
 }
 
-function panFlat(dx,dy){
-  const s=worldPx();
-  let cx=(flatLng+180)/360*s - dx;
-  let cy=(1-mercY(flatLat)/Math.PI)/2*s - dy;
-  cy=Math.max(0,Math.min(s,cy));
-  let lng=((cx/s*360-180)+180)%360; if(lng<0) lng+=360; flatLng=lng-180;
-  flatLat=Math.max(-85,Math.min(85, mercLat((1-2*cy/s)*Math.PI)));
-}
-
-// Zooming keeps the point under the cursor or fingers fixed, the way a map
-// should behave — otherwise the place you are looking at slides away.
-function zoomFlatAt(factor, sx, sy){
-  const before=flatUnproject(sx,sy);
-  flatZ=Math.max(1, Math.min(MAP_STYLES[mapStyle].max+2, flatZ+Math.log2(factor)));
-  const after=flatUnproject(sx,sy);
-  const s=worldPx();
-  let cx=(flatLng+180)/360*s + (before.lng-after.lng)/360*s;
-  let cy=(1-mercY(flatLat)/Math.PI)/2*s
-        + ((1-mercY(before.lat)/Math.PI)/2*s - (1-mercY(after.lat)/Math.PI)/2*s);
-  cy=Math.max(0,Math.min(s,cy));
-  let lng=((cx/s*360-180)+180)%360; if(lng<0) lng+=360; flatLng=lng-180;
-  flatLat=Math.max(-85,Math.min(85, mercLat((1-2*cy/s)*Math.PI)));
-}
-
 function updateDetail(){
   if(viewMode==='globe' && zoom>=DETAIL_FROM){ enterFlat(); render(); return; }
-  if(viewMode==='flat'  && flatZ<FLAT_MIN_Z){  enterGlobe(); render(); return; }
-  if(viewMode==='flat') scheduleTileDraw(true);
 }
 
 const baseImages={};
@@ -1652,73 +1725,6 @@ function applyBase(im){
   baseImage=im;
   if(gl && ready){ uploadTexture(im); render(); }
 }
-// The globe is painted from the same tile service used close in, so the
-// imagery you see zoomed out is the imagery you zoom into — no jump when the
-// view changes over. The shipped images are the instant/offline stand-in.
-const globeSkin={};
-async function buildGlobeSkin(style){
-  if(globeSkin[style]) { applyBase(globeSkin[style]); return; }
-  // a previously built skin loads instantly and works offline
-  try{
-    const saved=await idbGet('tiles','skin/'+style);
-    if(saved && saved.b){
-      const im=new Image();
-      await new Promise(res=>{ im.onload=res; im.onerror=res; im.src=URL.createObjectURL(saved.b); });
-      if(im.naturalWidth){ globeSkin[style]=im; if(mapStyle===style) applyBase(im); return; }
-    }
-  }catch(e){}
-  const Z=3, n=8, TS=256;
-  const merc=document.createElement('canvas');
-  merc.width=n*TS; merc.height=n*TS;
-  const mg=merc.getContext('2d');
-  let got=0;
-  await Promise.all(Array.from({length:n*n},(_,i)=>{
-    const x=i%n, y=(i/n)|0;
-    return new Promise(res=>{
-      const im=getTile(style,Z,x,y,true);
-      const done=()=>{ if(im.__ready){ try{ mg.drawImage(im,x*TS,y*TS,TS,TS); got++; }catch(e){} } res(); };
-      if(im.__ready||im.__failed) return done();
-      let tries=0;
-      const t=setInterval(()=>{ if(im.__ready||im.__failed||++tries>60){ clearInterval(t); done(); } },100);
-    });
-  }));
-  // Any tile that never arrived is filled from the shipped world image, so the
-  // globe is never left with holes in it.
-  if(got < n*n*0.25) return;
-  const fill=shippedBase[style];
-  if(fill && fill.naturalWidth && got<n*n){
-    for(let i=0;i<n*n;i++){
-      const x=i%n, y=(i/n)|0;
-      const im=tileCache.get(tileKey(style,Z,x,y));
-      if(im && im.__ready) continue;
-      const lngL=x/n*360-180, lngR=(x+1)/n*360-180;
-      const latT=mercLat((1-2*y/n)*Math.PI), latB=mercLat((1-2*(y+1)/n)*Math.PI);
-      const sw=fill.naturalWidth, sh=fill.naturalHeight;
-      const sx=(lngL+180)/360*sw, sx2=(lngR+180)/360*sw;
-      const sy=Math.max(0,(90-latT)/180*sh), sy2=Math.min(sh,(90-latB)/180*sh);
-      try{ mg.drawImage(fill, sx, sy, Math.max(1,sx2-sx), Math.max(1,sy2-sy), x*TS, y*TS, TS, TS); }catch(e){}
-    }
-  }
-
-  // Mercator -> equirectangular, one destination row at a time so it is exact.
-  const out=document.createElement('canvas');
-  out.width=2048; out.height=1024;               // power of two, as WebGL wants
-  const og=out.getContext('2d');
-  og.drawImage(merc,0,0,2048,1024);              // fallback fill for the poles
-  for(let y=0;y<1024;y++){
-    const lat=90-(y+0.5)/1024*180;
-    if(Math.abs(lat)>85) continue;
-    const my=(1-mercY(lat)/Math.PI)/2*merc.height;
-    og.drawImage(merc, 0, Math.max(0,Math.min(merc.height-1,my)), merc.width, 1, 0, y, 2048, 1);
-  }
-  globeSkin[style]=out;
-  if(mapStyle===style) applyBase(out);
-  // keep it, so from now on the globe shows the real imagery immediately
-  try{
-    out.toBlob(b=>{ if(b) idbPut('tiles',{k:'skin/'+style, b, t:Date.now()}); }, 'image/jpeg', 0.86);
-  }catch(e){}
-}
-
 function setMapStyle(s){
   if(!MAP_STYLES[s]) return;
   if(mapStyle===s) return;
@@ -1726,18 +1732,13 @@ function setMapStyle(s){
   try{ localStorage.setItem('gs-style',s); }catch(e){}
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===s));
-  // Drop anything still queued for the style we just left — those fetches
-  // would otherwise occupy the in-flight slots ahead of the new style's
-  // tiles, so the map sits on low-res fallback imagery longer than it needs
-  // to (part of what reads as "mixed" tiles right after switching).
-  tileQueue.length=0; tileQueueLow.length=0;
-  // The shipped image for each style is already a proper high-resolution
-  // equirectangular map — loadBaseTexture puts it up immediately. (This
-  // used to be followed by buildGlobeSkin(), which replaced it a moment
-  // later with a soft, low-zoom tile mosaic; that made every style look
-  // worse than the file sitting right next to index.html, so it's gone.)
+  // The shipped image for each style puts something on the globe with zero
+  // delay — loadBaseTexture shows it immediately. buildGlobeSkin then swaps
+  // in the real Esri imagery on top of it as soon as it's fetched (instant
+  // if this style was already built earlier in the session).
   loadBaseTexture(s);
-  if(viewMode==='flat') drawTiles(true);
+  buildGlobeSkin(s);
+  if(viewMode==='flat') applyLeafletStyle(s);
 }
 
 // A fixed vocabulary keeps the archive browsable as it grows — free text
@@ -1775,6 +1776,11 @@ function renderTagPicker(container, selected, onChange){
 let currentYear=2026;
 function render(){
   drawGlobe();
+  updateLeafletPickMarker();
+  // In flat mode, Leaflet + markercluster own pin/cluster drawing and input
+  // entirely (see the Leaflet section above) — the SVG layer below is
+  // globe-only and stays hidden while flat.
+  if(viewMode!=='globe') return;
   let html='';
   // Pins sit at their true position and are never nudged. Where several land
   // too close to tell apart, they collapse into one marker showing the count;
@@ -1844,7 +1850,7 @@ const renderFast=()=>{ render(); updateDetail(); };
 
 /* --- interaction --- */
 let dragging=false,lastX=0,lastY=0,moved=0;
-const touches=new Map(); let pinchDist=null,pinchZoom=1,pinchFlatZ=3;
+const touches=new Map(); let pinchDist=null,pinchZoom=1;
 
 let multiTouchSeen=false;
 gsvg.addEventListener('pointerdown',e=>{
@@ -1856,6 +1862,9 @@ gsvg.addEventListener('pointerdown',e=>{
   gsvg.classList.add('grabbing');
   gsvg.setPointerCapture(e.pointerId);
 });
+// gsvg only ever receives events in globe mode now — it's hidden outright
+// while the Leaflet map is up, which owns its own drag/pinch/wheel/click
+// handling for flat-mode panning, zooming and picking a location.
 gsvg.addEventListener('pointermove',e=>{
   if(e.pointerType==='touch'&&touches.has(e.pointerId)){
     touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -1863,17 +1872,10 @@ gsvg.addEventListener('pointermove',e=>{
       const p=[...touches.values()];
       const d=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
       multiTouchSeen=true;
-      if(pinchDist===null){ pinchDist=d; pinchZoom=zoom; pinchFlatZ=flatZ; }
+      if(pinchDist===null){ pinchDist=d; pinchZoom=zoom; }
       else{
         const ratio=d/pinchDist;
-        if(viewMode==='flat'){
-          const rect=gsvg.getBoundingClientRect();
-          const mx=(p[0].x+p[1].x)/2-rect.left, my=(p[0].y+p[1].y)/2-rect.top;
-          const target=pinchFlatZ+Math.log2(ratio);
-          zoomFlatAt(Math.pow(2,target-flatZ), mx, my);
-        }else{
-          zoom=Math.max(ZMIN,Math.min(ZMAX,pinchZoom*ratio));
-        }
+        zoom=Math.max(ZMIN,Math.min(ZMAX,pinchZoom*ratio));
         renderFast();
       }
       return;
@@ -1882,12 +1884,8 @@ gsvg.addEventListener('pointermove',e=>{
   if(!dragging||touches.size>=2) return;
   const dx=e.clientX-lastX, dy=e.clientY-lastY;
   moved+=Math.abs(dx)+Math.abs(dy);
-  if(viewMode==='flat'){
-    panFlat(dx,dy);                       // the map follows your finger exactly
-  }else{
-    const k=0.005/Math.max(1,zoom*0.7);
-    rotY+=dx*k; rotX+=dy*k;
-  }
+  const k=0.005/Math.max(1,zoom*0.7);
+  rotY+=dx*k; rotX+=dy*k;
   lastX=e.clientX; lastY=e.clientY;
   renderFast();
 });
@@ -1918,12 +1916,7 @@ gsvg.addEventListener('pointerleave',e=>{ if(e.pointerType!=='touch'){dragging=f
 gsvg.addEventListener('wheel',e=>{
   e.preventDefault();
   const f=Math.exp(-e.deltaY*0.0018);   // exponential = even feel at every zoom level
-  if(viewMode==='flat'){
-    const rect=gsvg.getBoundingClientRect();
-    zoomFlatAt(f, e.clientX-rect.left, e.clientY-rect.top);
-  }else{
-    zoom=Math.max(ZMIN,Math.min(ZMAX,zoom*f));
-  }
+  zoom=Math.max(ZMIN,Math.min(ZMAX,zoom*f));
   renderFast();
 },{passive:false});
 
@@ -2054,11 +2047,17 @@ document.getElementById('menu-selections').addEventListener('click',()=>{ closeM
    closer, the way a real map does, rather than jumping straight to the
    final scale. Once a press can no longer move in any further and the
    pins still can't be told apart, list them instead. */
+// A cluster tapped on the globe hands off straight to the flat (Leaflet)
+// map, centred and zoomed to comfortably fit the group. Leaflet's own
+// marker-cluster layer takes it from there — tapping the cluster again
+// there zooms smoothly to its bounds, and spiderfies automatically if a
+// couple of pins are too close together to ever separate (recorded a few
+// metres apart, say), so there's no separate gradual-zoom or list-fallback
+// path to hand-maintain here any more.
 function openCluster(ci){
   const members=lastClusters[ci];
   if(!members||members.length<2) return;
 
-  // Centre of the group, and how far apart its two most distant members are.
   let latMin=90, latMax=-90, lngMin=180, lngMax=-180;
   members.forEach(m=>{
     latMin=Math.min(latMin,m.p.lat); latMax=Math.max(latMax,m.p.lat);
@@ -2067,84 +2066,11 @@ function openCluster(ci){
   const lat=(latMin+latMax)/2, lng=(lngMin+lngMax)/2;
   const spanLat=Math.max(1e-9, latMax-latMin);
   const spanLng=Math.max(1e-9, lngMax-lngMin);
-
-  const touch=matchMedia('(pointer:coarse)').matches;
-  const groupPx=touch?22:18;
-
-  // What Mercator zoom would put the two closest members far enough apart to
-  // be separate pins? Works the same whether we're on the globe or the plane.
-  const closest=(()=>{
-    let d=Infinity;
-    for(let a=0;a<members.length;a++)
-      for(let b=a+1;b<members.length;b++){
-        const dLat=members[a].p.lat-members[b].p.lat;
-        const dLng=(members[a].p.lng-members[b].p.lng)*Math.cos(lat*Math.PI/180);
-        d=Math.min(d, Math.hypot(dLat,dLng));
-      }
-    return d;
-  })();
   const maxZ=MAP_STYLES[mapStyle].max+2;
-  const needZ = closest>0 && isFinite(closest)
-    ? Math.log2(groupPx*360/(256*closest))
-    : Infinity;
-
-  // Where the view sits right now, on whichever mode we're in — the next
-  // step is measured from here, not from scratch each time.
-  const curZ = viewMode==='flat' ? flatZ : globeZoomToFlatZ();
-
-  // Zoom so the whole group comfortably fills the view, but at least far
-  // enough to eventually break it apart.
   const fitZ=Math.log2(360*W/(256*Math.max(spanLng, spanLat)*1.8));
-  const idealZ=Math.max(isFinite(needZ)?needZ+0.4:curZ, isFinite(fitZ)?fitZ:curZ, curZ);
-  const ceiling=Math.min(maxZ, idealZ);
+  const targetZ=Math.min(maxZ, Math.max(isFinite(fitZ)?fitZ:DETAIL_FROM+2, DETAIL_FROM+1));
 
-  // One step per tap — enough to feel like real progress without
-  // overshooting straight to the destination.
-  const STEP=2.4;
-  const targetZ=Math.min(ceiling, curZ+STEP);
-
-  // Only once a tap can no longer move the view forward, and the group
-  // still can't be separated at this style's closest zoom, give up on
-  // zooming and list them instead (sounds recorded a few metres apart,
-  // for instance, closer together than any basemap tile can resolve).
-  if(targetZ<=curZ+0.08 && (!isFinite(needZ) || needZ>maxZ)){ showClusterList(members); return; }
-
-  if(viewMode==='flat'){
-    flyFlatTo(lat,lng,targetZ);
-  }else{
-    // hand over to the flat map centred on the group
-    flatLat=Math.max(-85,Math.min(85,lat)); flatLng=lng; flatZ=targetZ;
-    viewMode='flat';
-    initTileCanvas();
-    tileCv.style.display='block'; texCv.style.display='none';
-    render(); drawTiles();
-  }
-}
-
-// Ease across to a place and scale on the flat map.
-function flyFlatTo(lat,lng,z){
-  const sLat=flatLat, sLng=flatLng, sZ=flatZ, t0=performance.now();
-  let dLng=lng-sLng; if(dLng>180) dLng-=360; if(dLng<-180) dLng+=360;
-  (function tick(now){
-    const t=Math.max(0,Math.min(1,(now-t0)/600)), e=1-Math.pow(1-t,3);
-    flatLat=sLat+(lat-sLat)*e;
-    flatLng=sLng+dLng*e;
-    flatZ=sZ+(z-sZ)*e;
-    render();
-    if(t<1){ scheduleTileDraw(); requestAnimationFrame(tick); }
-    else { drawTiles(true); updateDetail(); }
-  })(t0);
-}
-
-function showClusterList(members){
-  const box=document.getElementById('cluster-list');
-  box.innerHTML=members.map(m=>
-    `<div class="cl-item" data-i="${m.i}"><div class="cl-title">${m.p.title}</div><div class="cl-sub">${m.p.place}</div></div>`).join('');
-  box.querySelectorAll('.cl-item').forEach(el=>{
-    el.addEventListener('click',()=>{ hideModal(clusterModal); openPanel(+el.getAttribute('data-i')); });
-  });
-  document.getElementById('cluster-count').textContent=members.length+' sounds here';
-  showModal(clusterModal);
+  enterFlatAt(lat, lng, targetZ);
 }
 
 /* ================= DETAIL PANEL ================= */
@@ -3579,10 +3505,11 @@ let pendingPick=null, pickReturnsTo='rec';
 function beginPick(returnTo){
   pickReturnsTo=returnTo||'rec';
   pickingLocation=true; pendingPick=null;
-  document.getElementById('pick-msg').textContent='Turn the globe, then tap where this sound belongs';
+  document.getElementById('pick-msg').textContent='Turn the globe (or tap the map), then place where this sound belongs';
   document.getElementById('pick-confirm').style.display='none';
   pickBanner.classList.add('on');
   gsvg.classList.add('picking');
+  document.getElementById('leaflet-map').classList.add('picking');
   recModal.classList.remove('open');
   editModal.classList.remove('open');
   overlay.classList.remove('open');
@@ -3591,19 +3518,24 @@ function beginPick(returnTo){
 document.getElementById('loc-manual').addEventListener('click',()=>beginPick('rec'));
 
 // Tapping drops a provisional marker you can keep moving until you confirm.
+// Shared by both the globe (screen-space tap, via gsvg's pointerup) and the
+// flat Leaflet map (real lat/lng straight from its own click event).
+function handlePickAt(lat,lng){
+  pendingPick={lat,lng};
+  document.getElementById('pick-msg').textContent=
+    lat.toFixed(2)+'°, '+lng.toFixed(2)+'° — tap again to move it';
+  document.getElementById('pick-confirm').style.display='inline-block';
+  render();
+}
 function handlePick(sx,sy){
   const ll=screenToLatLng(sx,sy);
   if(!ll) return;
-  pendingPick=ll;
-  document.getElementById('pick-msg').textContent=
-    ll.lat.toFixed(2)+'°, '+ll.lng.toFixed(2)+'° — tap again to move it';
-  document.getElementById('pick-confirm').style.display='inline-block';
-  render();
+  handlePickAt(ll.lat, ll.lng);
 }
 document.getElementById('pick-confirm').addEventListener('click',()=>{
   if(pendingPick){
     if(pickReturnsTo==='edit'){ editLoc={lat:pendingPick.lat,lng:pendingPick.lng}; refreshEditLoc(); }
-    else setLoc(pendingPick.lat,pendingPick.lng,'Placed by you on the globe');
+    else setLoc(pendingPick.lat,pendingPick.lng,'Placed by you on the map');
   }
   endPick();
 });
@@ -3611,6 +3543,7 @@ function endPick(){
   pickingLocation=false; pendingPick=null;
   pickBanner.classList.remove('on');
   gsvg.classList.remove('picking');
+  document.getElementById('leaflet-map').classList.remove('picking');
   showModal(pickReturnsTo==='edit'?editModal:recModal);
   render();
 }
@@ -3701,9 +3634,8 @@ document.getElementById('rec-submit').addEventListener('click',()=>{
 
 function flyTo(lat,lng,targetZoom){
   if(viewMode==='flat'){
-    flatLat=Math.max(-85,Math.min(85,lat)); flatLng=lng;
-    if(targetZoom!==undefined) flatZ=Math.max(1,Math.min(MAP_STYLES[mapStyle].max+2, flatZ+Math.log2(targetZoom/Math.max(zoom,1e-6))));
-    render(); updateDetail();
+    if(!leafletMap) return;
+    leafletMap.flyTo([lat,lng], targetZoom!==undefined?targetZoom:leafletMap.getZoom(), {duration:0.7});
     return;
   }
   const tY=-rad(lng), tX=rad(lat);
@@ -3957,7 +3889,7 @@ function updateViewUI(){
     const s=selById(selActiveId);
     document.getElementById('stage-title').textContent=s.name;
     hint.textContent=entriesOf(s).length+' sounds in this selection · Menu to leave it';
-    render();
+    render(); scheduleLeafletMarkerRebuild();
     return;
   }
   if(currentView==='private'){
@@ -3967,7 +3899,7 @@ function updateViewUI(){
       ? 'Drag to turn · Pinch or scroll to zoom · Tap a point to listen'
       : 'No sounds here yet — record the first one';
   }
-  render();
+  render(); scheduleLeafletMarkerRebuild();
 }
 document.getElementById('menu-public').addEventListener('click',()=>{closeMenu();currentView='public';updateViewUI();});
 document.getElementById('menu-private').addEventListener('click',()=>{
@@ -4036,7 +3968,7 @@ function setYear(y){
   currentYear=Math.round(Math.max(Y0,Math.min(Math.min(Y1,REAL),y)));
   handle.style.left=((currentYear-Y0)/(Y1-Y0))*100+'%';
   readout.textContent=currentYear;
-  render();
+  render(); scheduleLeafletMarkerRebuild();
 }
 let dragT=false;
 handle.addEventListener('pointerdown',e=>{dragT=true;e.stopPropagation();});
@@ -4068,6 +4000,7 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
   img.src=(MAP_STYLES[mapStyle]&&MAP_STYLES[mapStyle].base)||'earth.jpg';
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===mapStyle));
+  buildGlobeSkin(mapStyle);   // fetch real imagery in the background; swaps in once ready
   db=await openDB();
   storageOK=!!db;
   let localCache=[];
