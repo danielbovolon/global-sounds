@@ -983,7 +983,6 @@ const centerLatLng=()=>screenToLatLng(CX,CY);
 
 let ready=false, gl=null, glProg=null, glTex=null, glLoc={}, texW=0, texH=0, hasLod=false;
 let cpuTexData=null;                    // fallback only
-const img=new Image();
 
 /* ---- GPU renderer: the sphere is drawn by a fragment shader, so the map is
    sampled at full device resolution every frame — no quality drop while you
@@ -1083,23 +1082,27 @@ function uploadTexture(image){
 }
 function initCPUFallback(image){
   const t=document.createElement('canvas');
-  t.width=image.naturalWidth; t.height=image.naturalHeight;
+  t.width=image.naturalWidth||image.width; t.height=image.naturalHeight||image.height;
   const tc=t.getContext('2d',{willReadFrequently:true});
   tc.drawImage(image,0,0);
   cpuTexData=tc.getImageData(0,0,t.width,t.height).data;
   texW=t.width; texH=t.height;
 }
-img.onload=()=>{
-  baseImage=img; baseImages[MAP_STYLES[mapStyle].base]=img; shippedBase[mapStyle]=img;
-  if(initGL()){ uploadTexture(img); }
-  else { gl=null; initCPUFallback(img); }
-  ready=true;
-  layout();
-};
-img.onerror=()=>{
-  showFatal('Could not load the base map image — check that earth.jpg, map_terrain.jpg and map_atlas.jpg sit next to index.html.');
-};
-// src is set in boot(), once MAP_STYLES and the saved style are known.
+// A plain, flat-color stand-in for the globe's surface — no file, no
+// network, so it paints the instant the page opens with nothing that could
+// ever look like a bad map. The sphere shader's own limb-darkening turns a
+// single flat color into a convincingly shaded ball on its own; real
+// imagery (see buildGlobeSkin, below) swaps over it as soon as it's fetched.
+function solidColorCanvas(color){
+  const c=document.createElement('canvas'); c.width=4; c.height=2;
+  const cx=c.getContext('2d'); cx.fillStyle=color; cx.fillRect(0,0,4,2);
+  return c;
+}
+function initCPUFallbackColor(style){
+  const {r,g,b}=hexToRgb(PLACEHOLDER_COLOR[style]||'#0E1620');
+  texW=2; texH=2;
+  cpuTexData=new Uint8ClampedArray([r,g,b,255, r,g,b,255, r,g,b,255, r,g,b,255]);
+}
 
 function get2DContext(){
   if(ctx2d) return ctx2d;
@@ -1170,13 +1173,13 @@ function drawGlobe(){
    intermediate texture to blur it, and none of WebGL's size restrictions. */
 const MAP_STYLES = {
   satellite:{
-    label:'Satellite', base:'earth.jpg',
+    label:'Satellite',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
     tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     max:19, credit:'Imagery: Esri, Maxar, Earthstar Geographics'
   },
   terrain:{
-    label:'Terrain', base:'map_terrain.jpg',
+    label:'Terrain',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/${z}/${y}/${x}`,
     tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
     max:19, credit:'Esri · USGS · NOAA · Base: Natural Earth',
@@ -1186,7 +1189,7 @@ const MAP_STYLES = {
     overlay:'terrain-relief', overlayBlend:'multiply', overlayAlpha:0.6
   },
   streets:{
-    label:'Atlas', base:'map_atlas.jpg',
+    label:'Atlas',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/${z}/${y}/${x}`,
     tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     max:16, credit:'Esri · HERE · Garmin · Base: Natural Earth',
@@ -1211,6 +1214,11 @@ let mapStyle='satellite';
 try{ mapStyle=localStorage.getItem('gs-style')||'satellite'; }catch(e){}
 if(!MAP_STYLES[mapStyle]) mapStyle='satellite';
 
+// Flat stand-in colors for solidColorCanvas() / initCPUFallbackColor() —
+// no shipped image for any style any more (see the note above
+// buildGlobeSkin), just a plain, honest color while real imagery loads.
+const PLACEHOLDER_COLOR={ satellite:'#12283A', terrain:'#2B2420', streets:'#1B1D22' };
+
 const DETAIL_FROM=6;                 // globe below this, flat map above
 let FLAT_MIN_Z=3;                    // set once the viewport size is known
 
@@ -1218,17 +1226,18 @@ const mercY  = lat => Math.log(Math.tan(Math.PI/4 + lat*Math.PI/360));
 const mercLat= y   => (Math.atan(Math.sinh(y))*180)/Math.PI;
 
 /* ---- Globe surface imagery ----
-   The shipped earth.jpg / map_terrain.jpg / map_atlas.jpg are what the globe
-   shows the instant the page opens — they're already on disk, so there's
-   never a blank globe waiting on a network fetch. But they're a generic
-   stand-in, not the real photographic imagery the flat map shows once you
-   zoom in, and that mismatch is exactly what was flagged: the globe should
-   show that same real imagery, at every zoom level, not just after zooming
-   into the flat map.
-   This builds a real-imagery globe skin from the same Esri tiles the flat
-   map already uses — fetched as an 8×8 grid of Web Mercator tiles and
-   reprojected into the equirectangular layout drawGlobe()'s shader expects
-   — and swaps it in over the shipped placeholder as soon as it's ready.
+   There is no shipped map image any more — an earlier version of this
+   shipped a generic stand-in (earth.jpg / map_terrain.jpg / map_atlas.jpg)
+   so the globe was never blank while real imagery loaded, but that stand-in
+   was itself the "unclean" wrapped-looking map being flagged, and it kept
+   flashing up on every fresh load. It's gone now, files and all. Instead,
+   solidColorCanvas() paints a plain flat color the instant the page opens —
+   nothing that could ever look like a bad map, just the shape of a shaded
+   ball — and this builds the real-imagery globe skin from the same Esri
+   tiles the flat map already uses — fetched as an 8×8 grid of Web Mercator
+   tiles and reprojected into the equirectangular layout drawGlobe()'s
+   shader expects — swapping it in over that plain placeholder as soon as
+   it's ready.
    Deliberately NOT written to IndexedDB: the "no device storage for the
    map" rule below is a real constraint that was asked for on purpose, and a
    globe skin built from map tiles is still map imagery. The trade-off is
@@ -1292,7 +1301,7 @@ async function buildGlobeSkin(styleKey){
     }
     await Promise.all(Array.from({length:12},worker));
     // A patchy fetch (offline, flaky connection, a blocked host) would look
-    // worse than the shipped placeholder it's replacing — only swap in a
+    // worse than the plain placeholder it's replacing — only swap in a
     // mosaic that's actually mostly there.
     if(ok < coords.length*0.7) return;
     const skin=mercatorMosaicToEquirect(mosaic, mercSize, 4096, 2048);
@@ -1715,16 +1724,6 @@ function updateDetail(){
   if(viewMode==='globe' && zoom>=DETAIL_FROM){ enterFlat(); render(); return; }
 }
 
-const baseImages={};
-const shippedBase={};   // the whole-world image per style, used to fill any gap
-function loadBaseTexture(style){
-  const file=MAP_STYLES[style].base;
-  if(baseImages[file]){ shippedBase[style]=baseImages[file]; applyBase(baseImages[file]); return; }
-  const im=new Image();
-  im.onload=()=>{ baseImages[file]=im; shippedBase[style]=im; if(mapStyle===style) applyBase(im); };
-  im.onerror=()=>console.warn('base map missing:',file);
-  im.src=file;
-}
 function applyBase(im){
   baseImage=im;
   if(gl && ready){ uploadTexture(im); render(); }
@@ -1736,11 +1735,11 @@ function setMapStyle(s){
   try{ localStorage.setItem('gs-style',s); }catch(e){}
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===s));
-  // The shipped image for each style puts something on the globe with zero
-  // delay — loadBaseTexture shows it immediately. buildGlobeSkin then swaps
-  // in the real Esri imagery on top of it as soon as it's fetched (instant
-  // if this style was already built earlier in the session).
-  loadBaseTexture(s);
+  // A plain placeholder holds the globe's shape the instant the style
+  // changes; buildGlobeSkin swaps in the real Esri imagery as soon as it's
+  // fetched (instantly, with no placeholder needed, if this style was
+  // already built earlier in the session — it checks its own cache first).
+  if(!globeSkinCanvas[s] && gl && ready) applyBase(solidColorCanvas(PLACEHOLDER_COLOR[s]||'#0E1620'));
   buildGlobeSkin(s);
   if(viewMode==='flat') applyLeafletStyle(s);
 }
@@ -4001,7 +4000,12 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
 
 (async function boot(){
  try{
-  img.src=(MAP_STYLES[mapStyle]&&MAP_STYLES[mapStyle].base)||'earth.jpg';
+  // Paint a plain placeholder immediately — no file, no network, nothing
+  // that could ever look like a bad map — then fetch the real imagery.
+  if(initGL()){ uploadTexture(solidColorCanvas(PLACEHOLDER_COLOR[mapStyle]||'#0E1620')); }
+  else { gl=null; initCPUFallbackColor(mapStyle); }
+  ready=true;
+  layout();
   document.querySelectorAll('[data-style]').forEach(el=>
     el.classList.toggle('active', el.getAttribute('data-style')===mapStyle));
   buildGlobeSkin(mapStyle);   // fetch real imagery in the background; swaps in once ready
