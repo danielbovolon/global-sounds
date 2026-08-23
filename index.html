@@ -68,8 +68,14 @@
      used to be one gradient across the whole zone, which left the starfield
      showing through the lower half — stars inside the text block. */
   #top-zone::after{
-    content:''; position:absolute; left:0; right:0; top:100%; height:44px;
-    background:linear-gradient(to bottom, rgba(0,1,3,.85), rgba(0,1,3,0));
+    /* Half the reach of before, and eased rather than linear: it leaves the
+       zone at full black so there's no seam, collapses fast, then tails off
+       to nothing — no banding, and far less of the map sitting under it. */
+    content:''; position:absolute; left:0; right:0; top:100%; height:32px;
+    background:linear-gradient(to bottom,
+      rgba(0,1,3,1) 0%, rgba(0,1,3,.72) 10%, rgba(0,1,3,.48) 22%,
+      rgba(0,1,3,.30) 36%, rgba(0,1,3,.17) 52%, rgba(0,1,3,.08) 70%,
+      rgba(0,1,3,.03) 85%, rgba(0,1,3,0) 100%);
     pointer-events:none;
   }
   #globe-zone{
@@ -87,8 +93,11 @@
     display:flex; flex-direction:column; gap:22px;
   }
   #bottom-zone::before{
-    content:''; position:absolute; left:0; right:0; bottom:100%; height:40px;
-    background:linear-gradient(to top, rgba(0,1,3,.85), rgba(0,1,3,0));
+    content:''; position:absolute; left:0; right:0; bottom:100%; height:30px;
+    background:linear-gradient(to top,
+      rgba(0,1,3,1) 0%, rgba(0,1,3,.72) 10%, rgba(0,1,3,.48) 22%,
+      rgba(0,1,3,.30) 36%, rgba(0,1,3,.17) 52%, rgba(0,1,3,.08) 70%,
+      rgba(0,1,3,.03) 85%, rgba(0,1,3,0) 100%);
     pointer-events:none;
   }
 
