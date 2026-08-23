@@ -311,7 +311,7 @@
   #waveform.playing span{ background:var(--pin-active); }
 
   /* ---- Live visualizer suite ---- */
-  :root{ --viz-amber:#F2B25C; --viz-teal:#6FA8A0; --viz-ice:#7FB2E5; --viz-color:var(--viz-amber); }
+  :root{ --viz-amber:#F2B25C; --viz-color:var(--viz-amber); }
   #viz-block{ margin-top:14px; }
   .viz-tile{
     position:relative; border:1px solid var(--rule); background:#05070C;
@@ -343,16 +343,6 @@
     pointer-events:none; opacity:0; transition:opacity .2s; background:rgba(5,7,12,.6); padding:2px 6px;
   }
   .viz-tile:hover .viz-hint{ opacity:.85; }
-  #viz-colors{ display:flex; align-items:center; gap:9px; }
-  .viz-color-label{ font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); font-family:var(--sans); margin-right:1px; }
-  .viz-color-btn{
-    width:15px; height:15px; border-radius:50%; border:1px solid var(--rule);
-    cursor:pointer; padding:0;
-  }
-  .viz-color-btn[data-color="amber"]{ background:var(--viz-amber); }
-  .viz-color-btn[data-color="teal"]{ background:var(--viz-teal); }
-  .viz-color-btn[data-color="ice"]{ background:var(--viz-ice); }
-  .viz-color-btn.active{ box-shadow:0 0 0 2px var(--panel-bg), 0 0 0 3.5px var(--text-primary); }
 
   /* Modals */
   #overlay{ position:fixed; inset:0; background:rgba(2,3,6,.78); opacity:0; pointer-events:none; transition:opacity .25s; z-index:49; }
@@ -612,12 +602,6 @@
         <canvas id="viz-freq-canvas"></canvas>
         <div class="viz-label" id="viz-freq-label">Bars</div>
         <div class="viz-hint">Tap to switch</div>
-      </div>
-      <div id="viz-colors">
-        <span class="viz-color-label">Colour</span>
-        <button class="viz-color-btn" data-color="amber" title="Amber" aria-label="Amber colour"></button>
-        <button class="viz-color-btn" data-color="teal" title="Teal" aria-label="Teal colour"></button>
-        <button class="viz-color-btn" data-color="ice" title="Ice" aria-label="Ice colour"></button>
       </div>
     </div>
     <div id="spec-wrap" style="display:none;">
@@ -2319,10 +2303,12 @@ document.getElementById('play-btn').addEventListener('click',()=>playing?stopPla
    sits still. Preferences (which meter, which visualizer, which colour)
    persist per device via localStorage, the same pattern the map style uses. */
 
-const VIZ_COLORS={ amber:'#F2B25C', teal:'#6FA8A0', ice:'#7FB2E5' };
-let vizColorKey='amber';
-try{ vizColorKey=localStorage.getItem('gs-viz-color')||'amber'; }catch(e){}
-if(!VIZ_COLORS[vizColorKey]) vizColorKey='amber';
+// The visualizers are amber, full stop — the same --pin-active the pins and
+// the rest of the interface use. There used to be a teal/ice colour picker
+// under the tiles; it was the only place in the app where the accent could
+// drift away from the house colour, so it went.
+const VIZ_COLORS={ amber:'#F2B25C' };
+const vizColorKey='amber';
 
 const FREQ_VIZ_TYPES=[
   {id:'bars',        label:'Bars'},
@@ -2347,7 +2333,6 @@ if(meterMode!=='digital'&&meterMode!=='vu') meterMode='digital';
 
 function saveVizPrefs(){
   try{
-    localStorage.setItem('gs-viz-color',vizColorKey);
     localStorage.setItem('gs-viz-freq',FREQ_VIZ_TYPES[freqVizIdx].id);
     localStorage.setItem('gs-viz-meter',meterMode);
   }catch(e){}
@@ -2394,6 +2379,22 @@ function rmsOf(arr){ let s=0; for(let i=0;i<arr.length;i++) s+=arr[i]*arr[i]; re
 function peakOf(arr){ let m=0; for(let i=0;i<arr.length;i++){ const v=Math.abs(arr[i]); if(v>m) m=v; } return m; }
 const dB=v=>20*Math.log10(Math.max(v,0.000316));   // floor ~ -70dB
 
+/* ---- VU needle scaling ----
+   The dial used to span -20..+3 VU, a studio reference level: right for a
+   mixing desk fed at line level, useless for what this app actually plays.
+   Field recordings off a phone sit around -40..-25 dBFS RMS — entirely
+   below that old floor — so the needle stayed pinned at zero until
+   something genuinely loud came along.
+   It now reads RMS dBFS directly across -50..0, which puts ordinary
+   ambient material near the middle of the dial and keeps the printed
+   numbers honest: the scale below is drawn from these same constants, so
+   what the needle points at is what the level actually is. */
+const VU_FLOOR=-50, VU_TOP=0;
+function vuTarget(rms){
+  return Math.min(1, Math.max(0, (dB(rms)-VU_FLOOR)/(VU_TOP-VU_FLOOR)));
+}
+const vuScaleT = v => Math.min(1, Math.max(0, (v-VU_FLOOR)/(VU_TOP-VU_FLOOR)));
+
 // ---- Ballistic meter state (frame-rate independent) ----
 const meter={ vuL:0, vuR:0, dPeakL:-70, dPeakR:-70, dHoldL:-70, dHoldR:-70, dHoldTL:0, dHoldTR:0, rmsL:-70, rmsR:-70 };
 function resetMeterState(){
@@ -2412,11 +2413,15 @@ function updateMeterData(dt){
   // clip drives both sides, the way it would out of a real mono feed.
   if(rR<0.0008 && pR<0.0008 && (rL>=0.0008 || pL>=0.0008)){ rR=rL; pR=pL; }
 
-  // Analog VU ballistic: single-pole lowpass tuned so a step reaches ~99%
-  // of its target in ~300ms, matching the IEC 60268-17 VU standard.
-  const tau=0.065, a=1-Math.exp(-dt/tau);
-  meter.vuL += (rL*1.35 - meter.vuL)*a;
-  meter.vuR += (rR*1.35 - meter.vuR)*a;
+  // Needle position, 0..1 across the dial. Smoothing the DEFLECTION rather
+  // than the raw linear level is what makes the sweep read as a weighted
+  // mechanical movement instead of a value jittering in step with each
+  // analysis window. Asymmetric on purpose: rises quickly enough to catch
+  // a transient, falls back slowly, which is what a real needle does.
+  const tL=vuTarget(rL), tR=vuTarget(rR);
+  const upA=1-Math.exp(-dt/0.18), dnA=1-Math.exp(-dt/0.52);
+  meter.vuL += (tL-meter.vuL)*(tL>meter.vuL?upA:dnA);
+  meter.vuR += (tR-meter.vuR)*(tR>meter.vuR?upA:dnA);
 
   // Digital meter: instant attack, ~20dB/s release — standard PPM-style ballistics.
   const release=20*dt, pLdb=dB(pL), pRdb=dB(pR);
@@ -2460,7 +2465,19 @@ function drawMeterDigital(){
 // frame. That also leaves headroom to layer on the aging texture without
 // paying for it at 60fps.
 let vuFace=null, vuFaceW=0, vuFaceH=0;
-const vuGeom=(w,h)=>({ cx:w/2, r:h*1.65, pivotY:h*1.02, angMin:-50*Math.PI/180, angMax:50*Math.PI/180 });
+/* The dial is the top slice of a big circle whose pivot sits just below the
+   tile. r used to be a fixed h*1.65 with the pivot at h*1.02, which on this
+   tile's wide-and-short shape threw the whole scale arc — ticks, numbers,
+   red zone — above the top edge: all you saw was a bare cream wedge with
+   two needles on it. Now r is whatever fits the tile in BOTH axes (bezel
+   included, at r*1.02), so the complete face lands on canvas at any size. */
+const vuGeom=(w,h)=>{
+  const sweep=50*Math.PI/180;
+  const pivotY=h*1.24;
+  const rVert =(pivotY-h*0.07)/1.02;
+  const rHoriz=(w/2-h*0.04)/(1.02*Math.sin(sweep));
+  return { cx:w/2, r:Math.max(8,Math.min(rVert,rHoriz)), pivotY, angMin:-sweep, angMax:sweep };
+};
 function buildVUFace(w,h){
   const face=document.createElement('canvas');
   face.width=w; face.height=h;
@@ -2501,8 +2518,8 @@ function buildVUFace(w,h){
   }
   x.restore();
 
-  // red zone (0 to +3 VU) with a slim highlight above it
-  const a0=angMin+0.87*(angMax-angMin);
+  // red zone — the last 6dB before full scale, i.e. running out of headroom
+  const a0=angMin+vuScaleT(-6)*(angMax-angMin);
   x.strokeStyle='#B23A2C'; x.lineWidth=3.2*VDPR; x.lineCap='butt';
   x.beginPath(); x.arc(cx,pivotY,r*0.945,a0-Math.PI/2,outerA1); x.stroke();
   x.strokeStyle='rgba(255,255,255,.35)'; x.lineWidth=0.8*VDPR;
@@ -2511,15 +2528,21 @@ function buildVUFace(w,h){
   // ticks + labels
   x.strokeStyle='rgba(35,26,16,.6)'; x.fillStyle='rgba(35,26,16,.78)';
   x.font=(7*VDPR)+'px Georgia, serif'; x.textAlign='center';
-  [-20,-10,-7,-5,-3,-2,-1,0,3].forEach(vu=>{
-    const t=Math.min(1,Math.max(0,(vu+20)/23));
+  [-50,-40,-30,-25,-20,-15,-10,-6,-3,0].forEach(vu=>{
+    const t=vuScaleT(vu);
     const ang=angMin+t*(angMax-angMin);
-    const major = vu===0||vu===3||vu===-20;
+    const major = vu===0||vu===-20||vu===-50;
     const x1=cx+Math.sin(ang)*r*0.98, y1=pivotY-Math.cos(ang)*r*0.98;
     const x2=cx+Math.sin(ang)*r*(major?0.855:0.885), y2=pivotY-Math.cos(ang)*r*(major?0.855:0.885);
     x.lineWidth=(major?1.5:1)*VDPR; x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
-    const lx=cx+Math.sin(ang)*r*0.775, ly=pivotY-Math.cos(ang)*r*0.775;
-    x.fillText(vu>0?'+'+vu:String(vu),lx,ly);
+    // The end-stop numbers sit on the sector's straight edge, so half the
+    // glyph would fall off the cream face onto the housing — bias those two
+    // a few degrees inward so they read as printed on the dial.
+    const bias=(t<0.02?4:t>0.98?-4:0)*Math.PI/180;
+    const la=ang+bias;
+    const lx=cx+Math.sin(la)*r*0.775, ly=pivotY-Math.cos(la)*r*0.775;
+    // only the round numbers are labelled; the crowded middle stays bare
+    if(vu===-50||vu===-30||vu===-20||vu===-10||vu===0) x.fillText(String(vu),lx,ly);
   });
 
   // small arc of fine ticks between the numbered marks, for texture
@@ -2533,9 +2556,9 @@ function buildVUFace(w,h){
 
   // brand plate
   x.fillStyle='rgba(35,26,16,.62)'; x.font='italic '+(9*VDPR)+'px Georgia, serif';
-  x.fillText('VU', cx, pivotY-r*0.40);
+  x.fillText('dB', cx, pivotY-r*0.46);
   x.font=(5.6*VDPR)+'px Georgia, serif'; x.fillStyle='rgba(35,26,16,.4)';
-  x.fillText('G L O B A L   S O U N D S', cx, pivotY-r*0.27);
+  x.fillText('P L A N E T   S O U N D', cx, pivotY-r*0.32);
   x.textAlign='left';
 
   // corner rivets
@@ -2569,7 +2592,9 @@ function drawMeterVU(){
   x.drawImage(vuFace,0,0);
 
   const {cx,r,pivotY,angMin,angMax}=vuGeom(w,h);
-  const vuT=level=>{ const vdb=20*Math.log10(Math.max(level,0.001)); return Math.min(1,Math.max(0,(vdb+20)/23)); };
+  // meter.vuL/vuR are already 0..1 deflection (see vuTarget + the ballistic
+  // smoothing in updateMeterData) — nothing left to convert here.
+  const vuT=level=>Math.min(1,Math.max(0,level));
 
   // twin needles, L and R sharing one scale — the classic stereo VU layout.
   // Tapered and shadowed so they read as metal, not a flat vector line.
@@ -2827,22 +2852,10 @@ document.getElementById('viz-freq').addEventListener('click',()=>{
   if(FREQ_VIZ_TYPES[freqVizIdx].id==='spectrogram') specImg=null;
   playing ? drawFreqActive(0.016) : drawFreqIdle();
 });
-document.querySelectorAll('.viz-color-btn').forEach(b=>{
-  b.addEventListener('click',()=>{
-    vizColorKey=b.getAttribute('data-color');
-    document.querySelectorAll('.viz-color-btn').forEach(o=>o.classList.toggle('active',o===b));
-    document.documentElement.style.setProperty('--viz-color',VIZ_COLORS[vizColorKey]);
-    saveVizPrefs();
-    drawMeter();
-    playing ? drawFreqActive(0.016) : drawFreqIdle();
-  });
-});
-
 // Initial paint so the panel never shows blank canvases before first play.
 document.getElementById('viz-meter-label').textContent = meterMode==='vu' ? 'VU' : 'Digital';
 document.getElementById('viz-freq-label').textContent = FREQ_VIZ_TYPES[freqVizIdx].label;
 document.documentElement.style.setProperty('--viz-color',VIZ_COLORS[vizColorKey]);
-{ const activeBtn=document.querySelector(`.viz-color-btn[data-color="${vizColorKey}"]`); if(activeBtn) activeBtn.classList.add('active'); }
 resetMeterState(); drawMeter(); drawFreqIdle();
 
 
@@ -2994,7 +3007,7 @@ async function removePin(pin){
 const DB_NAME='commons-db', DB_VER=2;
 // Bumping this wipes locally stored entries once on each device, so a fresh
 // start really is fresh everywhere rather than only on the server.
-const RESET_TOKEN='2026-08-clean-start';
+const RESET_TOKEN='2026-08-23-wipe';
 let db=null, storageOK=false;
 
 function openDB(){
@@ -4062,6 +4075,10 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
       const mark=await idbGet('meta','reset');
       if(!mark || mark.v!==RESET_TOKEN){
         await idbClear('pins');
+        // Selections are just lists of pin ids — after a wipe they'd all
+        // point at entries that no longer exist, so they go too.
+        try{ await idbPut('meta',{k:'selections', v:[]}); }catch(e){}
+        selections=[]; selActiveId=null;
         await idbPut('meta',{k:'reset',v:RESET_TOKEN});
         localCache=[];
       }
