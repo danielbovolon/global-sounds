@@ -160,6 +160,9 @@
   }
   .menu-item:hover{ background:rgba(242,178,92,.08); color:var(--pin-active); }
   .menu-item.active{ color:var(--pin-active); }
+  /* .menu-sub / .style-row / .style-btn dress the map-style picker, which is
+     out of the menu while Satellite is the only style. Kept so restoring the
+     picker is markup-only — see the note above MAP_STYLES. */
   .menu-sub{ font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--text-muted); padding:4px 18px 6px; }
   .style-row{ display:flex; gap:5px; padding:0 14px 12px; }
   .style-btn{
@@ -203,9 +206,9 @@
     font-size:8.5px !important; backdrop-filter:blur(3px);
   }
   .leaflet-control-attribution a{ color:var(--text-muted) !important; }
-  /* Terrain's hillshade overlay rides in its own pane so it can multiply
-     against the base layer beneath it, the same effect the old canvas
-     compositor produced with globalCompositeOperation. */
+  /* Kept for any future style that pairs a base layer with a multiplied
+     overlay (a hillshade, say) — applyLeafletStyle creates this pane on
+     demand. Unused while Satellite is the only style. */
   .leaflet-pane.gs-hillshade-pane{ mix-blend-mode:multiply; opacity:.65; }
   /* Pins sit on top of real aerial/satellite imagery now, which can carry
      just about any color underneath them (including amber-ish dirt, roofs,
@@ -542,13 +545,6 @@
       <div id="menu-dropdown">
         <div class="mhead">PLANET SOUND</div>
         <div id="account-summary"></div>
-        <div class="menu-sub">Map</div>
-        <div class="style-row">
-          <button class="style-btn" data-style="satellite">Satellite</button>
-          <button class="style-btn" data-style="terrain">Terrain</button>
-          <button class="style-btn" data-style="streets">Atlas</button>
-        </div>
-        <div class="menu-divider"></div>
         <div class="menu-item active" id="menu-public">Planet Sound</div>
         <div class="menu-item" id="menu-private">My Archive</div>
         <div class="menu-divider"></div>
@@ -1189,50 +1185,34 @@ function drawGlobe(){
    canvas. Each tile is painted at its native resolution wherever the sphere
    projection puts it, so detail is identical at every zoom level — there is no
    intermediate texture to blur it, and none of WebGL's size restrictions. */
-// Round-robin subdomain for the tile hosts that publish them, so a wide
-// view isn't queued behind one origin's connection limit. Leaflet does this
-// itself for {s} in a tileTemplate; this is the equivalent for the plain
-// url() form that saveAreaOffline and buildGlobeSkin use.
-const sub=(letters,x,y)=>letters[Math.abs(x+y)%letters.length];
-
+/* Satellite is the only style right now. Terrain (OpenTopoMap) and Atlas
+   (CARTO Dark Matter) were both pulled: they dropped black tiles, changed
+   look mid-zoom as the mosaic handed over to live tiles, and never matched
+   Esri's imagery for sharpness. The picker in the menu went with them —
+   a one-option chooser is dead UI. The machinery below is untouched and
+   still keyed by style, so adding a second source later is just another
+   entry here plus the picker markup back in the menu. */
 const MAP_STYLES = {
   satellite:{
     label:'Satellite',
     url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
     tileTemplate:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     max:19, credit:'Imagery: Esri, Maxar, Earthstar Geographics'
-  },
-  // A real topographic map — contour lines, named peaks with elevations,
-  // trails and ridges — instead of the old Esri road-atlas-plus-hillshade
-  // stack, which was built as a street map first and only hinted at terrain.
-  // Needs no companion overlay: the contours ARE the relief.
-  terrain:{
-    label:'Terrain',
-    url:(z,x,y)=>`https://${sub('abc',x,y)}.tile.opentopomap.org/${z}/${x}/${y}.png`,
-    tileTemplate:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-    subdomains:'abc',
-    max:17, credit:'© OpenTopoMap · © OpenStreetMap contributors (CC-BY-SA)'
-  },
-  // CARTO's Dark Matter — a near-black minimal basemap with fine grey
-  // streets and crisp labels, all in one layer. Replaces Esri's Dark Gray
-  // Canvas, which shipped its labels in a separate Reference service and
-  // looked like blank grey shapes without it.
-  streets:{
-    label:'Atlas',
-    url:(z,x,y)=>`https://${sub('abcd',x,y)}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`,
-    tileTemplate:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    subdomains:'abcd',
-    max:20, credit:'© CARTO · © OpenStreetMap contributors'
   }
 };
 let mapStyle='satellite';
+// A device that last used Terrain or Atlas has that saved — fall through to
+// satellite rather than booting into a style that no longer exists.
 try{ mapStyle=localStorage.getItem('gs-style')||'satellite'; }catch(e){}
-if(!MAP_STYLES[mapStyle]) mapStyle='satellite';
+if(!MAP_STYLES[mapStyle]){
+  mapStyle='satellite';
+  try{ localStorage.setItem('gs-style','satellite'); }catch(e){}
+}
 
-// Flat stand-in colors for solidColorCanvas() / initCPUFallbackColor() —
+// Flat stand-in colour for solidColorCanvas() / initCPUFallbackColor() —
 // no shipped image for any style any more (see the note above
-// buildGlobeSkin), just a plain, honest color while real imagery loads.
-const PLACEHOLDER_COLOR={ satellite:'#12283A', terrain:'#CFCBBC', streets:'#15171A' };
+// buildGlobeSkin), just a plain, honest colour while real imagery loads.
+const PLACEHOLDER_COLOR={ satellite:'#12283A' };
 
 const DETAIL_FROM=6;                 // globe below this, flat map above
 let FLAT_MIN_Z=3;                    // set once the viewport size is known
@@ -1262,14 +1242,12 @@ const mercLat= y   => (Math.atan(Math.sinh(y))*180)/Math.PI;
    between Satellite/Terrain/Atlas and back doesn't re-fetch. Built once per
    style per real static asset for anyone who'd rather have zero storage use
    than zero fetch delay. */
-// Per-style build settings. OpenTopoMap is a small volunteer-run service
-// with a strict tile-usage policy (no bulk fetching, very few parallel
-// connections), so its globe skin is built from a 4×4 grid two connections
-// at a time rather than the 8×8 / 12-at-a-time the commercial CDNs are
-// happy to serve. Slightly softer globe, a service that stays reachable.
+// Per-style build settings. Only Esri is in play now and it serves bulk
+// requests happily; a per-style table is kept because the volunteer-run
+// hosts that might come back (OpenTopoMap and the like) cap parallel
+// connections hard, and that limit belongs next to the style, not inlined.
 const SKIN_CFG={
-  terrain:{ zoom:2, workers:2 },
-  _default:{ zoom:3, workers:12 }
+  _default:{ zoom:3, workers:12 }        // 8x8 Mercator tiles -> 2048x2048
 };
 const skinCfg = k => SKIN_CFG[k] || SKIN_CFG._default;
 let globeSkinCanvas={}, globeSkinBuilding={};
@@ -1522,8 +1500,10 @@ function makePinIcon(){
 }
 function makeClusterIcon(cluster){
   const count=cluster.getChildCount();
-  const size=Math.round(Math.min(50, 30+Math.sqrt(count)*4));
-  return L.divIcon({ className:'', html:`<div class="gs-cluster" style="width:${size}px;height:${size}px;font-size:${Math.max(12,Math.min(15,size*0.34)).toFixed(0)}px;">${count}</div>`, iconSize:[size,size] });
+  // Small enough not to swallow the map, still clearly a group rather than a
+  // single pin (which is 14px). Grows slowly with the count and caps early.
+  const size=Math.round(Math.min(36, 22+Math.sqrt(count)*2.6));
+  return L.divIcon({ className:'', html:`<div class="gs-cluster" style="width:${size}px;height:${size}px;font-size:${Math.max(9.5,Math.min(12,size*0.38)).toFixed(1)}px;">${count}</div>`, iconSize:[size,size] });
 }
 
 function onLeafletMapClick(e){
