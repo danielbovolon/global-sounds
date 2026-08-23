@@ -71,7 +71,7 @@
     /* Half the reach of before, and eased rather than linear: it leaves the
        zone at full black so there's no seam, collapses fast, then tails off
        to nothing — no banding, and far less of the map sitting under it. */
-    content:''; position:absolute; left:0; right:0; top:100%; height:32px;
+    content:''; position:absolute; left:0; right:0; top:100%; height:16px;
     background:linear-gradient(to bottom,
       rgba(0,1,3,1) 0%, rgba(0,1,3,.72) 10%, rgba(0,1,3,.48) 22%,
       rgba(0,1,3,.30) 36%, rgba(0,1,3,.17) 52%, rgba(0,1,3,.08) 70%,
@@ -93,7 +93,7 @@
     display:flex; flex-direction:column; gap:22px;
   }
   #bottom-zone::before{
-    content:''; position:absolute; left:0; right:0; bottom:100%; height:30px;
+    content:''; position:absolute; left:0; right:0; bottom:100%; height:15px;
     background:linear-gradient(to top,
       rgba(0,1,3,1) 0%, rgba(0,1,3,.72) 10%, rgba(0,1,3,.48) 22%,
       rgba(0,1,3,.30) 36%, rgba(0,1,3,.17) 52%, rgba(0,1,3,.08) 70%,
@@ -232,11 +232,15 @@
      just made quiet. Leaflet's own "Leaflet" badge and its flag are the
      library's branding, not a licence condition, and those are hidden. */
   .leaflet-control-attribution{
-    background:rgba(0,1,3,.45) !important; color:rgba(237,232,221,.38) !important;
-    font-size:8px !important; padding:1px 5px !important; backdrop-filter:blur(2px);
-    letter-spacing:.02em;
+    /* No plate behind it — just the words. A dark text shadow does the work
+       the background box used to, so the credit stays readable over bright
+       imagery without putting a bar across the bottom of the map. */
+    background:transparent !important; color:rgba(237,232,221,.5) !important;
+    font-size:8px !important; padding:0 6px 2px 0 !important; backdrop-filter:none !important;
+    letter-spacing:.02em; box-shadow:none !important;
+    text-shadow:0 1px 2px rgba(0,1,3,.95), 0 0 4px rgba(0,1,3,.8);
   }
-  .leaflet-control-attribution a{ color:rgba(237,232,221,.38) !important; text-decoration:none; }
+  .leaflet-control-attribution a{ color:rgba(237,232,221,.5) !important; text-decoration:none; }
   .leaflet-control-attribution svg,
   .leaflet-attribution-flag{ display:none !important; }
   /* Kept for any future style that pairs a base layer with a multiplied
