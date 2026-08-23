@@ -247,17 +247,18 @@
   /* Detail panel */
   #panel{
     position:fixed; right:0; top:0; bottom:0; width:min(360px,92vw);
-    padding-top:calc(28px + env(safe-area-inset-top));
-    padding-bottom:calc(28px + env(safe-area-inset-bottom));
+    padding:calc(56px + env(safe-area-inset-top)) 26px calc(28px + env(safe-area-inset-bottom));
     background:var(--panel-bg); border-left:1px solid var(--rule);
     transform:translateX(100%); transition:transform .38s cubic-bezier(.22,.61,.36,1);
-    padding:28px 26px; display:flex; flex-direction:column; z-index:45; overflow-y:auto;
+    display:flex; flex-direction:column; z-index:45; overflow-y:auto;
   }
   #panel.open{ transform:translateX(0); }
-  #panel .close{ position:absolute; top:14px; right:14px; }
-  #panel{ padding-top:56px; }
+  /* Sits inside the same safe-area-aware top padding as the rest of the
+     panel, so a phone's notch/status bar can never cover it — that was
+     making it unreachable on devices with a tall inset. */
+  #panel .close{ position:absolute; top:calc(14px + env(safe-area-inset-top)); right:14px; }
   #panel .eyebrow2, #panel h2{ padding-right:34px; }
-  #p-photo{ width:100%; height:150px; object-fit:cover; border:1px solid var(--rule); margin-bottom:18px; display:none; }
+  #p-photo{ width:100%; height:auto; max-height:340px; object-fit:contain; background:#05070C; border:1px solid var(--rule); margin-bottom:18px; display:none; }
   .eyebrow2{ font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--time-accent); margin-bottom:8px; }
   #panel h2{ font-family:var(--serif); font-weight:500; font-size:24px; margin:0 0 4px; line-height:1.22; }
   #panel .meta{ font-size:11.5px; color:var(--text-muted); font-family:var(--serif); font-style:italic; margin-bottom:16px; }
