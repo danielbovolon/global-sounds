@@ -567,6 +567,321 @@
     .title{ font-size:17px; }
     #top-zone{ padding-top:calc(10px + env(safe-area-inset-top)); padding-bottom:8px; }
   }
+
+  /* ==========================================================================
+     ORBIT NAVIGATOR — five spheres that are the app's navigation.
+     Terra (globe) · Archivum (archive) · Mappe (maps) · Animus (you) ·
+     de nobis (about). They live on one canvas that morphs between two
+     layouts: a slim rail down the right edge, and a full-screen deck.
+     ========================================================================== */
+  :root{
+    --orb-terra:#123B63;
+    --orb-archivum:#E9E3D5;
+    --orb-mappe:#8A7A1E;
+    --orb-animus:#D6D1C7;
+    --orb-denobis:#5B3A96;
+  }
+
+  #nav-back{
+    position:fixed; inset:0; z-index:69; background:rgba(0,1,3,.92);
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    opacity:0; pointer-events:none; transition:opacity .42s cubic-bezier(.2,.8,.2,1);
+  }
+  #nav-back.on{ opacity:1; }
+  #nav-canvas{ position:fixed; inset:0; width:100%; height:100%; z-index:70; pointer-events:none;
+    transition:opacity .28s; }
+  #nav-canvas.dim{ opacity:0; }
+  #nav-hit.off{ pointer-events:none; }
+  /* The hit area is a strip beside the rail; in deck mode it takes the screen. */
+  #nav-hit{
+    position:fixed; z-index:71; touch-action:none;
+    right:0; top:50%; transform:translateY(-50%);
+    width:92px; height:340px;
+  }
+  #nav-hit.deck{ inset:0; width:auto; height:auto; transform:none; }
+
+  #deck-caption{
+    position:fixed; left:0; right:0; z-index:72; text-align:center;
+    bottom:calc(56px + env(safe-area-inset-bottom));
+    opacity:0; pointer-events:none; transition:opacity .3s;
+  }
+  #deck-caption.on{ opacity:1; }
+  #deck-caption .dc-sub{
+    font-family:var(--serif); font-style:italic; font-size:14px; color:var(--text-primary); opacity:.86;
+  }
+  #deck-caption .dc-hint{
+    margin-top:9px; font-size:8.5px; letter-spacing:.24em; text-transform:uppercase; color:var(--text-muted);
+  }
+  #rail-hint{
+    position:fixed; z-index:72; right:12px; top:calc(50% + 128px);
+    font-size:8px; letter-spacing:.2em; text-transform:uppercase; color:var(--text-muted);
+    opacity:.5; pointer-events:none; transition:opacity .3s;
+  }
+  #rail-hint.hide{ opacity:0; }
+
+  /* ==========================================================================
+     SECTION PANES — Archivum / Animus / de nobis sit over the map stage.
+     Terra and Mappe are the stage itself (globe view / flat view).
+     ========================================================================== */
+  .pane{
+    position:fixed; inset:0; z-index:22; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    background-color:#000103;
+    background-image:radial-gradient(130% 95% at 80% 4%, var(--pane-wash,rgba(20,40,70,.30)) 0%, rgba(0,0,0,0) 64%);
+    opacity:0; pointer-events:none; transform:translateY(18px) scale(.995);
+    transition:opacity .38s cubic-bezier(.2,.8,.2,1), transform .38s cubic-bezier(.2,.8,.2,1);
+  }
+  .pane.on{ opacity:1; pointer-events:auto; transform:none; }
+  #pane-archivum{ --pane-wash:rgba(233,227,213,.13); }
+  #pane-mappe{    --pane-wash:rgba(138,122,30,.20); }
+  #pane-animus{   --pane-wash:rgba(214,209,199,.12); }
+  #pane-denobis{  --pane-wash:rgba(91,58,150,.26); }
+
+  .pane-inner{
+    max-width:620px; margin:0 auto;
+    padding:calc(30px + env(safe-area-inset-top)) 108px 230px 26px;
+  }
+  .pane-eyebrow{
+    font-family:var(--serif); font-size:11px; letter-spacing:.3em; text-transform:uppercase;
+    color:var(--pin-active); margin-bottom:10px;
+  }
+  .pane-title{
+    font-family:var(--serif); font-weight:400; font-size:34px; line-height:1.1; margin:0 0 10px;
+    letter-spacing:.01em;
+  }
+  .pane-note{
+    font-family:var(--serif); font-style:italic; font-size:13.5px; line-height:1.6;
+    color:var(--text-muted); margin:0 0 24px; max-width:44ch;
+  }
+  .pane-rule{ border:0; border-top:1px solid var(--rule); margin:26px 0; }
+  .pane-sub{
+    font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--text-muted);
+    margin:30px 0 12px; display:flex; align-items:center; gap:12px;
+  }
+  .pane-sub::after{ content:''; flex:1; height:1px; background:var(--rule); }
+
+  .seg{ display:flex; border:1px solid var(--rule); margin-bottom:16px; }
+  .seg button{
+    flex:1; background:none; border:0; color:var(--text-muted); padding:11px 8px; cursor:pointer;
+    font-family:var(--sans); font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+    transition:color .2s, background .2s;
+  }
+  .seg button + button{ border-left:1px solid var(--rule); }
+  .seg button.on{ color:var(--pin-active); background:rgba(242,178,92,.09); }
+
+  .pane-search{ margin-bottom:14px; }
+  .arch-stats{
+    font-family:var(--serif); font-style:italic; font-size:11.5px; color:var(--text-muted);
+    margin-bottom:16px;
+  }
+
+  .arch-row{
+    display:flex; align-items:center; gap:14px; width:100%; text-align:left;
+    background:none; border:0; border-top:1px solid var(--rule); color:var(--text-primary);
+    padding:14px 2px; cursor:pointer; transition:background .18s;
+  }
+  .arch-row:last-child{ border-bottom:1px solid var(--rule); }
+  .arch-row:hover{ background:rgba(242,178,92,.05); }
+  .arch-row .ar-orb{
+    width:34px; height:34px; border-radius:50%; flex-shrink:0; position:relative;
+    background:radial-gradient(circle at 32% 28%, #4a627c 0%, #1b2a3a 55%, #060b12 100%);
+    box-shadow:inset -3px -4px 8px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .arch-row .ar-orb i{
+    position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px 0 0 -2.5px;
+    border-radius:50%; background:var(--pin-active); box-shadow:0 0 8px var(--pin-glow);
+  }
+  .arch-row .ar-body{ flex:1; min-width:0; }
+  .arch-row .ar-title{ font-family:var(--serif); font-size:15px; line-height:1.25; }
+  .arch-row .ar-meta{
+    font-size:10.5px; color:var(--text-muted); margin-top:3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .arch-row .ar-dur{
+    font-size:10.5px; color:var(--time-accent); letter-spacing:.06em; flex-shrink:0;
+    font-variant-numeric:tabular-nums;
+  }
+  .arch-empty{
+    font-family:var(--serif); font-style:italic; font-size:13px; color:var(--text-muted);
+    padding:26px 0; border-top:1px solid var(--rule);
+  }
+
+  .btn.wide{ width:100%; margin-top:16px; text-align:center; }
+  .btn.wide + .btn.wide{ margin-top:9px; }
+
+  .acc-card{
+    display:flex; align-items:center; gap:16px; border:1px solid var(--rule);
+    padding:18px; background:rgba(255,255,255,.025);
+  }
+  .acc-card .av{
+    width:56px; height:56px; border-radius:50%; flex-shrink:0;
+    border:1px solid var(--rule); background:rgba(255,255,255,.05) center/cover no-repeat;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--serif); font-size:19px; color:var(--text-muted);
+  }
+  .acc-card .who{ min-width:0; }
+  .acc-card .who b{ font-family:var(--serif); font-weight:500; font-size:18px; display:block; }
+  .acc-card .who small{
+    display:block; font-size:11px; color:var(--text-muted); margin-top:3px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  .stat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--rule); margin-top:1px; }
+  .stat-grid > div{ background:#000103; padding:16px 10px; text-align:center; }
+  .stat-grid .n{ font-family:var(--serif); font-size:26px; color:var(--pin-active); line-height:1; }
+  .stat-grid .k{ font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--text-muted); margin-top:7px; }
+
+  .about-block p{ font-family:var(--serif); font-size:14px; line-height:1.72; margin:0 0 16px; }
+  .about-block p.small{ font-size:12px; color:var(--text-muted); font-style:italic; }
+  .value-row{
+    display:flex; justify-content:space-between; gap:18px; padding:12px 0;
+    border-top:1px solid var(--rule); font-size:12.5px;
+  }
+  .value-row span:first-child{ color:var(--pin-active); letter-spacing:.06em; }
+  .value-row span:last-child{ color:var(--text-muted); font-family:var(--serif); font-style:italic; text-align:right; }
+
+  /* ==========================================================================
+     PERSISTENT RECORD ORB — reachable from every screen.
+     ========================================================================== */
+  #rec-orb{
+    position:fixed; left:50%; z-index:46; transform:translateX(-50%);
+    bottom:calc(26px + env(safe-area-inset-bottom));
+    width:62px; height:62px; border-radius:50%; border:0; padding:0; cursor:pointer;
+    background:none; -webkit-tap-highlight-color:transparent;
+    transition:transform .28s cubic-bezier(.2,.8,.2,1), opacity .28s;
+  }
+  #rec-orb::before{  /* halo */
+    content:''; position:absolute; inset:-16px; border-radius:50%;
+    background:radial-gradient(circle, rgba(217,72,59,.30) 0%, rgba(217,72,59,0) 68%);
+    opacity:.75; transition:opacity .3s;
+  }
+  #rec-orb .ro-core{
+    position:absolute; inset:6px; border-radius:50%;
+    background:radial-gradient(circle at 34% 28%, #FF7C6C 0%, #E0483A 42%, #8E1F16 100%);
+    box-shadow:inset -4px -6px 14px rgba(0,0,0,.55), inset 3px 4px 10px rgba(255,255,255,.18);
+  }
+  #rec-orb .ro-ring{
+    position:absolute; inset:0; border-radius:50%;
+    border:1px solid rgba(140,175,215,.55);
+    box-shadow:0 0 14px rgba(110,150,200,.28);
+  }
+  #rec-orb:active{ transform:translateX(-50%) scale(.93); }
+  #rec-orb.armed .ro-core{ animation:recPulse 1.35s ease-in-out infinite; }
+  @keyframes recPulse{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.06); } }
+  #rec-orb.hide{ opacity:0; pointer-events:none; transform:translateX(-50%) scale(.8); }
+  #rec-orb-label{
+    position:fixed; left:50%; transform:translateX(-50%); z-index:46;
+    bottom:calc(96px + env(safe-area-inset-bottom));
+    font-size:8px; letter-spacing:.28em; text-transform:uppercase; color:var(--text-muted);
+    pointer-events:none; transition:opacity .28s;
+  }
+  #rec-orb-label.hide{ opacity:0; }
+
+  /* ==========================================================================
+     RECORDER — the take screen. Scrolling waveform, fixed playhead, timer.
+     ========================================================================== */
+  #recorder{
+    position:fixed; inset:0; z-index:75; background:#000103;
+    display:flex; flex-direction:column;
+    opacity:0; pointer-events:none; transform:scale(1.02);
+    transition:opacity .34s cubic-bezier(.2,.8,.2,1), transform .34s cubic-bezier(.2,.8,.2,1);
+  }
+  #recorder.on{ opacity:1; pointer-events:auto; transform:none; }
+  #rx-top{
+    display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
+    padding:calc(22px + env(safe-area-inset-top)) 22px 0;
+  }
+  #rx-top .rx-eyebrow{
+    font-size:9px; letter-spacing:.28em; text-transform:uppercase; color:var(--text-muted);
+  }
+  #rx-top .rx-where{
+    font-family:var(--serif); font-style:italic; font-size:12px; color:var(--text-muted); margin-top:6px;
+  }
+  #rx-close{
+    width:34px; height:34px; border:1px solid var(--rule); background:none; color:var(--text-muted);
+    cursor:pointer; font-size:15px; line-height:1; flex-shrink:0;
+  }
+  #rx-close:hover{ color:var(--text-primary); border-color:var(--text-muted); }
+
+  #rx-wave-wrap{ flex:1; position:relative; min-height:0; margin-top:18px; }
+  #rx-wave{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #rx-readout{
+    position:absolute; left:22px; top:14px; display:flex; gap:18px; align-items:center;
+    font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-muted);
+    pointer-events:none;
+  }
+  #rx-readout b{ color:var(--text-primary); font-weight:400; font-variant-numeric:tabular-nums; }
+  #rx-readout .clip{ color:var(--rec-red); opacity:0; transition:opacity .2s; }
+  #rx-readout .clip.on{ opacity:1; }
+
+  #rx-bottom{
+    padding:0 22px calc(26px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  #rx-btn{
+    width:104px; height:104px; border-radius:50%; border:0; padding:0; cursor:pointer;
+    position:relative; background:none; -webkit-tap-highlight-color:transparent;
+    transition:transform .2s;
+  }
+  #rx-btn:active{ transform:scale(.95); }
+  #rx-btn .core{
+    position:absolute; inset:7px; border-radius:50%;
+    background:radial-gradient(circle at 34% 28%, #FF7F6E 0%, #E0483A 44%, #861D15 100%);
+    box-shadow:inset -6px -8px 20px rgba(0,0,0,.55), inset 4px 5px 14px rgba(255,255,255,.16),
+               0 0 34px rgba(217,72,59,.35);
+    transition:border-radius .3s, inset .3s;
+  }
+  #rx-btn .ring{
+    position:absolute; inset:0; border-radius:50%; border:1.5px solid rgba(140,175,215,.6);
+    box-shadow:0 0 20px rgba(110,150,200,.3);
+  }
+  #rx-btn.recording .core{ border-radius:16px; inset:26px; }
+  #rx-btn:disabled{ opacity:.35; cursor:default; }
+  #rx-timer{
+    font-family:var(--serif); font-size:26px; letter-spacing:.14em; color:var(--text-primary);
+    font-variant-numeric:tabular-nums;
+  }
+  #rx-timer small{ font-size:14px; opacity:.5; }
+  #rx-units{
+    font-size:7.5px; letter-spacing:.3em; text-transform:uppercase; color:var(--text-muted); margin-top:-8px;
+  }
+  #rx-caption{
+    font-family:var(--serif); font-style:italic; font-size:12.5px; color:var(--text-muted);
+    text-align:center; min-height:18px;
+  }
+  #rx-error{
+    font-family:var(--serif); font-style:italic; font-size:12px; color:var(--rec-red);
+    text-align:center; display:none;
+  }
+  #rx-actions{ display:none; gap:10px; width:100%; max-width:420px; }
+  #rx-actions.on{ display:flex; }
+  #rx-actions .btn{ flex:1; text-align:center; }
+  #rx-file{
+    background:none; border:0; color:var(--text-muted); cursor:pointer;
+    font-size:9px; letter-spacing:.2em; text-transform:uppercase; padding:6px;
+  }
+  #rx-file:hover{ color:var(--pin-active); }
+  #rx-spec{
+    width:100%; max-width:420px; height:64px; border:1px solid var(--rule); background:#05070C;
+    display:none; object-fit:fill;
+  }
+
+  /* The old inline record button is superseded by the persistent orb. */
+  #contribute-btn{ display:none !important; }
+  #menu-cluster{ display:none !important; }
+  /* Room for the orb above the timeline. */
+  #bottom-zone{ padding-bottom:calc(120px + env(safe-area-inset-bottom)); }
+  #footer-row{ grid-template-columns:1fr auto; }
+  #footer-row #time-readout{ grid-column:2; }
+
+  @media (max-width:520px){
+    .pane-inner{ padding-right:94px; padding-left:20px; }
+    .pane-title{ font-size:28px; }
+    #rx-btn{ width:92px; height:92px; }
+  }
+  @media (max-height:620px){
+    #rec-orb{ width:54px; height:54px; bottom:calc(20px + env(safe-area-inset-bottom)); }
+  }
+
 </style>
 <!-- The flat (2D) map runs on Leaflet + leaflet.markercluster once zoomed in
      past the globe's detail threshold — the same proven stack most sound-map
@@ -919,6 +1234,118 @@
     </div>
   </div>
   <button class="btn-primary" id="acc-submit">Continue</button>
+</div>
+
+<!-- ================= ORBIT NAVIGATOR ================= -->
+<div id="nav-back"></div>
+<canvas id="nav-canvas"></canvas>
+<div id="nav-hit"></div>
+<div id="deck-caption">
+  <div class="dc-sub"></div>
+  <div class="dc-hint">Swipe to turn · tap to enter</div>
+</div>
+<div id="rail-hint">Swipe</div>
+
+<!-- ================= ARCHIVUM ================= -->
+<section class="pane" id="pane-archivum">
+  <div class="pane-inner">
+    <div class="pane-eyebrow">Archivum</div>
+    <h1 class="pane-title">The archive</h1>
+    <p class="pane-note">Everything that has been kept — each sound at the place and the moment someone stood in it.</p>
+    <div class="seg" id="arch-seg">
+      <button data-scope="public" class="on">Planet Sound</button>
+      <button data-scope="private">My Archive</button>
+    </div>
+    <input class="input pane-search" id="arch-search" placeholder="Search titles, places, tags…">
+    <div class="arch-stats" id="arch-stats"></div>
+    <div id="arch-list"></div>
+    <button class="btn wide" id="arch-selections">My selections</button>
+  </div>
+</section>
+
+<!-- ================= ANIMUS ================= -->
+<section class="pane" id="pane-animus">
+  <div class="pane-inner">
+    <div class="pane-eyebrow">Animus</div>
+    <h1 class="pane-title">You, here</h1>
+    <p class="pane-note">What you have given the map, and what only you can hear.</p>
+    <div class="acc-card" id="animus-card"></div>
+    <div class="stat-grid" id="animus-stats"></div>
+
+    <div class="pane-sub">Library</div>
+    <button class="btn wide" id="an-selections">My selections</button>
+    <button class="btn wide" id="an-export">Export my archive</button>
+    <button class="btn wide" id="an-import">Import an archive</button>
+
+    <div class="pane-sub">Maps</div>
+    <div class="arch-stats" id="an-tiles">—</div>
+    <button class="btn wide" id="an-save-area">Save this area offline</button>
+    <button class="btn wide" id="an-clear-tiles">Remove saved maps</button>
+
+    <div class="pane-sub">Account</div>
+    <button class="btn wide" id="an-account">Sign in</button>
+    <p class="pane-note" style="margin-top:14px;">An account is optional. It gives you a private archive and lets you reach your recordings from another device.</p>
+  </div>
+</section>
+
+<!-- ================= DE NOBIS ================= -->
+<section class="pane" id="pane-denobis">
+  <div class="pane-inner">
+    <div class="pane-eyebrow">de nobis</div>
+    <h1 class="pane-title">About Planet Sound</h1>
+    <div class="about-block">
+      <p>An open map of the world's sounds — contributed by anyone, curated by us.</p>
+      <p>Every entry sits at a place and a moment. The archive begins now and grows forward: nothing is backfilled, nothing is invented. What you hear here is what someone stood in and chose to keep.</p>
+      <hr class="pane-rule">
+      <div class="value-row"><span>Location</span><span>Where a sound happened</span></div>
+      <div class="value-row"><span>Time</span><span>When it happened, and what it meant</span></div>
+      <div class="value-row"><span>Openness</span><span>No expertise required to take part</span></div>
+      <div class="value-row"><span>Compassion</span><span>Easy to give a sound, easy to receive one</span></div>
+      <hr class="pane-rule">
+      <p>Adding a sound never requires an account. When you record, you decide whether it joins the public map or stays in a private archive only you can see — and you can move it between the two at any time, or take it down entirely. Nobody else can alter or remove what you recorded.</p>
+      <p class="small">Planet Sound — an Audio Printworks project by Daniel Bovolon.</p>
+    </div>
+    <button class="btn wide" id="nobis-start">Start listening</button>
+  </div>
+</section>
+
+<!-- ================= PERSISTENT RECORD ORB ================= -->
+<button id="rec-orb" aria-label="Record a sound"><span class="ro-core"></span><span class="ro-ring"></span></button>
+<div id="rec-orb-label">Rec</div>
+
+<!-- ================= RECORDER ================= -->
+<div id="recorder">
+  <div id="rx-top">
+    <div>
+      <div class="rx-eyebrow">Take</div>
+      <div class="rx-where" id="rx-where">Input · device microphone</div>
+    </div>
+    <button id="rx-close" aria-label="Close">✕</button>
+  </div>
+
+  <div id="rx-wave-wrap">
+    <canvas id="rx-wave"></canvas>
+    <div id="rx-readout">
+      <span>Peak <b id="rx-peak">−∞</b> dB</span>
+      <span>RMS <b id="rx-rms">−∞</b> dB</span>
+      <span class="clip" id="rx-clip">Clip</span>
+    </div>
+  </div>
+
+  <div id="rx-bottom">
+    <div id="rx-timer">00:00<small>:00</small></div>
+    <div id="rx-units">min · sec · cs</div>
+    <button id="rx-btn" aria-label="Start recording"><span class="core"></span><span class="ring"></span></button>
+    <div id="rx-caption">Tap to start</div>
+    <div id="rx-error"></div>
+    <img id="rx-spec" alt="Spectrogram of this take">
+    <div id="rx-actions">
+      <button class="btn" id="rx-again">Again</button>
+      <button class="btn" id="rx-play">Listen back</button>
+      <button class="btn" id="rx-keep">Keep it</button>
+    </div>
+    <button id="rx-file">Use a sound file instead</button>
+  </div>
 </div>
 
 <script>
@@ -4200,6 +4627,939 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
    try{ layout(); setYear(new Date().getFullYear()); updateViewUI(); }catch(e){}
  }
 })();
+
+/* ==========================================================================
+   ORBIT NAVIGATOR
+   Five spheres are the navigation. They live on a single canvas that morphs
+   between two layouts — a slim rail down the right edge, and a full-screen
+   deck (the stacked, overlapping arrangement). Dragging turns the stack;
+   tapping enters a section. Terra and Mappe are the same map engine in its
+   two states, so zooming into the globe genuinely travels between them.
+   ========================================================================== */
+(function(){
+'use strict';
+
+const NV=[
+  {key:'terra',    name:'Terra',    sub:'The globe — turn it, listen to it',        base:'#123B63', hi:'#3E7FB8', ink:'#9FD0F5', dark:true },
+  {key:'archivum', name:'Archivum', sub:'The archive — every sound that was kept',  base:'#E9E3D5', hi:'#FFFFFF', ink:'#6E6350', dark:false},
+  {key:'mappe',    name:'Mappe',    sub:'The maps — down to street level',          base:'#8A7A1E', hi:'#D8C24E', ink:'#3C3406', dark:false},
+  {key:'animus',   name:'Animus',   sub:'You — what you gave, what only you hear',  base:'#D6D1C7', hi:'#FFFFFF', ink:'#5E5A52', dark:false},
+  {key:'denobis',  name:'de nobis', sub:'About — why this archive exists',          base:'#5B3A96', hi:'#9C79E0', ink:'#D9C7FF', dark:true },
+];
+const NVN=NV.length;
+
+const nvCv=document.getElementById('nav-canvas');
+const nvG=nvCv.getContext('2d');
+const nvHit=document.getElementById('nav-hit');
+const nvBack=document.getElementById('nav-back');
+const nvCap=document.getElementById('deck-caption');
+const nvCapSub=nvCap.querySelector('.dc-sub');
+const railHint=document.getElementById('rail-hint');
+
+let nvPos=0;             // continuous carousel position
+let nvTarget=0;          // snap target
+let nvActive=0;          // section actually on screen
+let nvDeck=0;            // 0 = rail, 1 = deck (animated)
+let nvDeckOpen=false;
+let nvDrag=false, nvLastY=0, nvMoved=0, nvDownT=0, nvDownX=0, nvDownY=0, nvVel=0;
+let nvSpin=0, nvLastFrame=0, nvLevel=0, nvEnterPulse=0, nvPaneOpen=false;
+
+const nvDPR=()=>Math.min(window.devicePixelRatio||1,2.5);
+function nvResize(){
+  const d=nvDPR();
+  nvCv.width=Math.round(innerWidth*d); nvCv.height=Math.round(innerHeight*d);
+  nvG.setTransform(d,0,0,d,0,0);
+}
+addEventListener('resize',nvResize);
+
+/* ---------- geometry ---------- */
+const nvScale=d=>{ const a=Math.abs(d); return Math.max(.33, 1/(1+.50*a)); };
+
+function nvPositions(){
+  const W=innerWidth,H=innerHeight;
+  const railR=Math.min(24, H*0.036), deckR=Math.min(W*0.27, H*0.135, 122);
+  const R=railR+(deckR-railR)*nvDeck;
+  const gap=1.04+(0.68-1.04)*nvDeck;
+  const rs=[],ys=[0];
+  for(let i=0;i<NVN;i++) rs.push(R*nvScale(i-nvPos));
+  for(let i=1;i<NVN;i++) ys[i]=ys[i-1]+(rs[i-1]+rs[i])*gap;
+  const p=Math.max(0,Math.min(NVN-1,nvPos));
+  const i0=Math.floor(p), i1=Math.min(NVN-1,i0+1), f=p-i0;
+  const anchor=ys[i0]+(ys[i1]-ys[i0])*f;
+
+  // rail: the stack hangs off the active sphere, centred on screen.
+  const railX=W-Math.max(40,railR+17), railY=H*0.5;
+  // deck: the whole column is fitted, so all five stay in view however far
+  // you turn it — the arrangement of the sketch, made scrollable.
+  const top=-anchor-rs[0], bot=ys[NVN-1]-anchor+rs[NVN-1], span=bot-top;
+  const padT=Math.max(66,H*0.085), padB=Math.max(118,H*0.155);
+  const avail=Math.max(60,H-padT-padB);
+  const deckX=W*0.5, deckY=padT-top+Math.max(0,(avail-span))/2;
+  const cx=railX+(deckX-railX)*nvDeck, cy=railY+(deckY-railY)*nvDeck;
+  return rs.map((r,i)=>({ i, r, x:cx, y:cy+(ys[i]-anchor) }));
+}
+
+/* ---------- sphere shading ---------- */
+function nvRGBA(hex,a){
+  const n=parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function nvMix(h1,h2,t){
+  const a=parseInt(h1.slice(1),16), b=parseInt(h2.slice(1),16);
+  const r=Math.round(((a>>16)&255)+(((b>>16)&255)-((a>>16)&255))*t);
+  const g=Math.round(((a>>8)&255)+(((b>>8)&255)-((a>>8)&255))*t);
+  const c=Math.round((a&255)+((b&255)-(a&255))*t);
+  return `rgb(${r},${g},${c})`;
+}
+function sphPt(lat,lng,spin,tilt){
+  const la=lat*Math.PI/180, lo=(lng+spin)*Math.PI/180, ti=tilt*Math.PI/180;
+  const x=Math.cos(la)*Math.sin(lo), y0=Math.sin(la), z0=Math.cos(la)*Math.cos(lo);
+  return { x, y:y0*Math.cos(ti)-z0*Math.sin(ti), z:y0*Math.sin(ti)+z0*Math.cos(ti) };
+}
+function nvPoly(g,pts,cx,cy,r){
+  let pen=false;
+  g.beginPath();
+  for(const p of pts){
+    if(p.z<=0.02){ pen=false; continue; }
+    const sx=cx+p.x*r, sy=cy-p.y*r;
+    if(!pen){ g.moveTo(sx,sy); pen=true; } else g.lineTo(sx,sy);
+  }
+  g.stroke();
+}
+function nvCircleAt(g,lat,lng,rho,spin,tilt,cx,cy,r){
+  const pts=[];
+  for(let a=0;a<=360;a+=8){
+    const ar=a*Math.PI/180;
+    const dl=Math.asin(Math.sin(rho*Math.PI/180)*Math.sin(ar))*180/Math.PI;
+    const dla=rho*Math.cos(ar);
+    pts.push(sphPt(lat+dla,lng+dl/Math.max(.25,Math.cos((lat+dla)*Math.PI/180)),spin,tilt));
+  }
+  nvPoly(g,pts,cx,cy,r);
+}
+
+/* Each sphere carries a signature drawn in true spherical projection, so it
+   reads as a turning body rather than a flat disc. */
+function nvPattern(g,cfg,cx,cy,r,spin,level,t){
+  g.lineJoin='round'; g.lineCap='round';
+  const tilt=-16;
+  if(cfg.key==='terra'){
+    g.strokeStyle=nvRGBA(cfg.ink,.30); g.lineWidth=Math.max(.5,r*.008);
+    for(let la=-60;la<=60;la+=30){ const p=[]; for(let lo=0;lo<=360;lo+=5)p.push(sphPt(la,lo,spin,tilt)); nvPoly(g,p,cx,cy,r); }
+    for(let lo=0;lo<360;lo+=30){ const p=[]; for(let la=-90;la<=90;la+=5)p.push(sphPt(la,lo,spin,tilt)); nvPoly(g,p,cx,cy,r); }
+    g.strokeStyle=nvRGBA(cfg.ink,.5); g.lineWidth=Math.max(.7,r*.012);
+    { const p=[]; for(let lo=0;lo<=360;lo+=5)p.push(sphPt(0,lo,spin,tilt)); nvPoly(g,p,cx,cy,r); }
+    // live data: every pin on the map is a light on this little world
+    let pins=[];
+    try{ pins=publicPins.concat(privatePins).slice(0,140); }catch(e){}
+    for(const pin of pins){
+      const p=sphPt(pin.lat,pin.lng,spin,tilt);
+      if(p.z<=0.05) continue;
+      const sx=cx+p.x*r, sy=cy-p.y*r, s=(.6+p.z*.4)*Math.max(1.1,r*.026);
+      g.beginPath(); g.fillStyle=`rgba(242,178,92,${(.35+p.z*.55).toFixed(2)})`;
+      g.arc(sx,sy,s,0,6.283); g.fill();
+    }
+  } else if(cfg.key==='archivum'){
+    // sedimentary strata — layers of what has been kept
+    for(let la=-84;la<=84;la+=3.2){
+      const seed=Math.sin(la*1.7)*0.5+Math.sin(la*0.43+1.3)*0.5;
+      g.strokeStyle=nvRGBA(cfg.ink,.10+.16*Math.abs(seed));
+      g.lineWidth=Math.max(.6,r*(.008+.012*Math.abs(seed)));
+      const p=[]; for(let lo=0;lo<=360;lo+=6)p.push(sphPt(la,lo,spin*.35,tilt)); nvPoly(g,p,cx,cy,r);
+    }
+    g.strokeStyle=nvRGBA(cfg.ink,.34); g.lineWidth=Math.max(.7,r*.012);
+    for(let lo=0;lo<360;lo+=60){ const p=[]; for(let la=-90;la<=90;la+=6)p.push(sphPt(la,lo,spin*.35,tilt)); nvPoly(g,p,cx,cy,r); }
+  } else if(cfg.key==='mappe'){
+    g.strokeStyle=nvRGBA(cfg.ink,.26); g.lineWidth=Math.max(.5,r*.007);
+    for(let la=-75;la<=75;la+=15){ const p=[]; for(let lo=0;lo<=360;lo+=5)p.push(sphPt(la,lo,spin*.6,tilt)); nvPoly(g,p,cx,cy,r); }
+    for(let lo=0;lo<360;lo+=15){ const p=[]; for(let la=-90;la<=90;la+=5)p.push(sphPt(la,lo,spin*.6,tilt)); nvPoly(g,p,cx,cy,r); }
+    g.strokeStyle=nvRGBA(cfg.ink,.55); g.lineWidth=Math.max(.7,r*.013);
+    const marks=[[22,40],[-14,-58],[48,-8],[-36,132],[8,104]];
+    for(const [la,lo] of marks) for(let k=1;k<=3;k++) nvCircleAt(g,la,lo,4*k,spin*.6,tilt,cx,cy,r);
+  } else if(cfg.key==='animus'){
+    // a waveform belted round the equator, moving with whatever is sounding
+    const amp=14+level*34;
+    g.strokeStyle=nvRGBA(cfg.ink,.55); g.lineWidth=Math.max(.9,r*.017);
+    const p=[];
+    for(let lo=0;lo<=360;lo+=2.5){
+      const la=Math.sin(lo*0.11+t*1.6)*amp*0.55 + Math.sin(lo*0.31-t*2.3)*amp*0.3 + Math.sin(lo*0.7+t*.9)*amp*0.15;
+      p.push(sphPt(la,lo,spin*.8,tilt));
+    }
+    nvPoly(g,p,cx,cy,r);
+    g.strokeStyle=nvRGBA(cfg.ink,.18); g.lineWidth=Math.max(.5,r*.008);
+    for(let la=-60;la<=60;la+=30){ const q=[]; for(let lo=0;lo<=360;lo+=6)q.push(sphPt(la,lo,spin*.8,tilt)); nvPoly(g,q,cx,cy,r); }
+  } else {
+    // de nobis — orbits and small travelling bodies
+    g.strokeStyle=nvRGBA(cfg.ink,.30); g.lineWidth=Math.max(.6,r*.010);
+    const tilts=[0,58,-58];
+    tilts.forEach((tt,k)=>{
+      const p=[]; for(let a=0;a<=360;a+=5) p.push(sphPt(Math.sin(a*Math.PI/180)*tt*0.5, a, spin*(0.5+k*0.25), tilt));
+      nvPoly(g,p,cx,cy,r);
+    });
+    tilts.forEach((tt,k)=>{
+      const a=(t*40*(1+k*0.4)+k*120)%360;
+      const p=sphPt(Math.sin(a*Math.PI/180)*tt*0.5, a, spin*(0.5+k*0.25), tilt);
+      if(p.z>0.05){
+        g.beginPath(); g.fillStyle=nvRGBA(cfg.ink,.85);
+        g.arc(cx+p.x*r, cy-p.y*r, Math.max(1.4,r*.035), 0, 6.283); g.fill();
+      }
+    });
+  }
+}
+
+function nvDrawOrb(g,o,cfg,alpha,isActive,t){
+  const {x,y,r}=o;
+  if(r<1||alpha<=0.01) return;
+  g.save();
+  g.globalAlpha=alpha;
+
+  // atmosphere
+  const glow=g.createRadialGradient(x,y,r*.88,x,y,r*1.9);
+  glow.addColorStop(0,nvRGBA(cfg.hi,.22*(isActive?1:.35)));
+  glow.addColorStop(1,nvRGBA(cfg.hi,0));
+  g.fillStyle=glow; g.beginPath(); g.arc(x,y,r*1.9,0,6.283); g.fill();
+
+  // body
+  const lx=x-r*.34, ly=y-r*.38;
+  const body=g.createRadialGradient(lx,ly,r*.04,x,y,r*1.06);
+  body.addColorStop(0,nvMix(cfg.base,'#ffffff',.42));
+  body.addColorStop(.42,cfg.base);
+  body.addColorStop(1,nvMix(cfg.base,'#000000',.72));
+  g.beginPath(); g.arc(x,y,r,0,6.283); g.fillStyle=body; g.fill();
+
+  // signature, clipped to the sphere
+  g.save(); g.beginPath(); g.arc(x,y,r*.995,0,6.283); g.clip();
+  nvPattern(g,cfg,x,y,r,nvSpin*(isActive?1:.5),isActive?nvLevel:0,t);
+  g.restore();
+
+  // terminator
+  const term=g.createRadialGradient(x-r*.30,y-r*.34,r*.10,x+r*.28,y+r*.34,r*1.42);
+  term.addColorStop(0,'rgba(0,0,0,0)');
+  term.addColorStop(.55,'rgba(0,0,0,.18)');
+  term.addColorStop(1,'rgba(0,0,0,.80)');
+  g.beginPath(); g.arc(x,y,r,0,6.283); g.fillStyle=term; g.fill();
+
+  // rim light along the shadowed limb
+  const rim=g.createLinearGradient(x-r,y-r,x+r,y+r);
+  rim.addColorStop(0,nvRGBA(cfg.hi,0));
+  rim.addColorStop(.55,nvRGBA(cfg.hi,0));
+  rim.addColorStop(1,nvRGBA(cfg.hi,isActive?.75:.4));
+  g.beginPath(); g.arc(x,y,r*.985,0,6.283);
+  g.lineWidth=Math.max(1,r*.035); g.strokeStyle=rim; g.stroke();
+
+  // specular
+  g.save();
+  g.beginPath(); g.arc(x,y,r,0,6.283); g.clip();
+  g.translate(lx,ly); g.rotate(-0.6);
+  const sp=g.createRadialGradient(0,0,0,0,0,r*.34);
+  sp.addColorStop(0,'rgba(255,255,255,.45)');
+  sp.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=sp; g.beginPath(); g.ellipse(0,0,r*.34,r*.20,0,0,6.283); g.fill();
+  g.restore();
+
+  // Naming: in the deck the word sits on the sphere, as in the sketch. On
+  // the rail there is no room for that, so the active name stands beside it.
+  const deckT=Math.max(0,Math.min(1,(nvDeck-0.28)/0.72));
+  if(deckT>0.02 && r>15){
+    g.globalAlpha=alpha*deckT;
+    g.font=`400 ${Math.max(9,r*.30)}px 'EB Garamond', Georgia, serif`;
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillStyle=cfg.dark?'rgba(0,0,0,.5)':'rgba(255,255,255,.45)';
+    g.fillText(cfg.name,x,y+Math.max(1,r*.02));
+    g.fillStyle=cfg.dark?'rgba(255,255,255,.95)':'rgba(10,10,12,.9)';
+    g.fillText(cfg.name,x,y);
+  }
+  if(isActive && deckT<0.98 && !nvPaneOpen){
+    g.globalAlpha=alpha*(1-deckT);
+    try{ g.letterSpacing='0.18em'; }catch(e){}
+    g.font=`500 10px 'Inter', -apple-system, sans-serif`;
+    g.textAlign='right'; g.textBaseline='middle';
+    g.fillStyle='rgba(237,232,221,.92)';
+    g.fillText(cfg.name.toUpperCase(), x-r-13, y);
+    try{ g.letterSpacing='0px'; }catch(e){}
+  }
+  g.restore();
+}
+
+/* ---------- the loop ---------- */
+function nvReadLevel(){
+  let v=0;
+  try{
+    if(typeof rxAnalyser!=='undefined' && rxAnalyser){
+      const a=new Uint8Array(rxAnalyser.frequencyBinCount);
+      rxAnalyser.getByteTimeDomainData(a);
+      let s=0; for(let i=0;i<a.length;i+=8){ const d=(a[i]-128)/128; s+=d*d; }
+      v=Math.sqrt(s/(a.length/8))*2.6;
+    } else if(typeof anMono!=='undefined' && anMono && typeof playing!=='undefined' && playing){
+      const a=new Float32Array(anMono.fftSize);
+      anMono.getFloatTimeDomainData(a);
+      let s=0; for(let i=0;i<a.length;i+=8) s+=a[i]*a[i];
+      v=Math.sqrt(s/(a.length/8))*2.6;
+    }
+  }catch(e){}
+  return Math.min(1,v);
+}
+
+function nvFrame(ts){
+  const t=ts/1000, dt=Math.min(.05,nvLastFrame?t-nvLastFrame:.016);
+  nvLastFrame=t;
+  nvSpin=(nvSpin+dt*4.2)%360;
+  nvLevel+=(nvReadLevel()-nvLevel)*Math.min(1,dt*9);
+  nvDeck+=((nvDeckOpen?1:0)-nvDeck)*Math.min(1,dt*7.5);
+  if(nvEnterPulse>0) nvEnterPulse=Math.max(0,nvEnterPulse-dt*2.4);
+
+  if(!nvDrag){
+    nvPos+=(nvTarget-nvPos)*Math.min(1,dt*9);
+    if(Math.abs(nvTarget-nvPos)<.001) nvPos=nvTarget;
+  }
+
+  nvG.clearRect(0,0,innerWidth,innerHeight);
+  const ps=nvPositions();
+  // paint far orbs first so the active one sits on top
+  const order=ps.map((o,i)=>i).sort((a,b)=>Math.abs(b-nvPos)-Math.abs(a-nvPos));
+  for(const i of order){
+    const d=Math.abs(i-nvPos);
+    const isAct=d<.5;
+    let a=Math.max(.42, 1-0.11*d);
+    if(nvDeck<.5) a*= (d<.5?1:.72);
+    if(isAct && nvEnterPulse>0) a=Math.min(1,a+nvEnterPulse*.2);
+    nvDrawOrb(nvG,ps[i],NV[i],a,isAct,t);
+  }
+  requestAnimationFrame(nvFrame);
+}
+
+/* ---------- input ---------- */
+function nvHitTest(cx,cy){
+  const ps=nvPositions();
+  let best=-1,bd=1e9;
+  ps.forEach(o=>{
+    const d=Math.hypot(cx-o.x,cy-o.y);
+    if(d<Math.max(o.r,20)+8 && d<bd){ bd=d; best=o.i; }
+  });
+  return best;
+}
+function nvSpacing(){
+  const ps=nvPositions();
+  let s=0,n=0;
+  for(let i=1;i<ps.length;i++){ s+=Math.abs(ps[i].y-ps[i-1].y); n++; }
+  return n? s/n : 60;
+}
+nvHit.addEventListener('pointerdown',e=>{
+  nvHit.setPointerCapture(e.pointerId);
+  nvDrag=true; nvLastY=e.clientY; nvMoved=0; nvVel=0;
+  nvDownT=performance.now(); nvDownX=e.clientX; nvDownY=e.clientY;
+  railHint.classList.add('hide');
+  e.preventDefault();
+});
+nvHit.addEventListener('pointermove',e=>{
+  if(!nvDrag) return;
+  const dy=e.clientY-nvLastY; nvLastY=e.clientY;
+  nvMoved+=Math.abs(dy);
+  const sp=nvSpacing();
+  nvPos=Math.max(-.45,Math.min(NVN-1+.45, nvPos - dy/sp));
+  nvVel=-dy/sp;
+  e.preventDefault();
+});
+function nvRelease(e){
+  if(!nvDrag) return;
+  nvDrag=false;
+  const quick=performance.now()-nvDownT<300 && nvMoved<9;
+  if(quick){
+    const i=nvHitTest(e.clientX,e.clientY);
+    if(i>=0){
+      if(!nvDeckOpen){
+        if(i===nvActive) nvOpenDeck();
+        else nvGo(i);
+      } else {
+        if(Math.abs(i-nvTarget)<.5) nvGo(i);
+        else nvTarget=i;
+      }
+    } else if(nvDeckOpen){ nvCloseDeck(); }
+    return;
+  }
+  let snap=Math.round(nvPos+nvVel*2.2);
+  snap=Math.max(0,Math.min(NVN-1,snap));
+  nvTarget=snap;
+  if(!nvDeckOpen) nvGo(snap,true);
+}
+nvHit.addEventListener('pointerup',nvRelease);
+nvHit.addEventListener('pointercancel',()=>{ nvDrag=false; nvTarget=Math.max(0,Math.min(NVN-1,Math.round(nvPos))); });
+nvHit.addEventListener('wheel',e=>{
+  e.preventDefault();
+  nvTarget=Math.max(0,Math.min(NVN-1,nvTarget+(e.deltaY>0?1:-1)));
+  if(!nvDeckOpen) nvGo(nvTarget,true);
+},{passive:false});
+
+function nvOpenDeck(){
+  nvDeckOpen=true; nvTarget=nvActive;
+  nvHit.classList.add('deck'); nvBack.classList.add('on'); nvCap.classList.add('on');
+  railHint.classList.add('hide');
+  nvCapUpdate();
+}
+function nvCloseDeck(){
+  nvDeckOpen=false; nvTarget=nvActive;
+  nvHit.classList.remove('deck'); nvBack.classList.remove('on'); nvCap.classList.remove('on');
+}
+function nvCapUpdate(){
+  const i=Math.max(0,Math.min(NVN-1,Math.round(nvPos)));
+  nvCapSub.textContent=NV[i].sub;
+}
+setInterval(()=>{ if(nvDeckOpen) nvCapUpdate(); },120);
+
+/* ==========================================================================
+   SECTIONS
+   ========================================================================== */
+const PANES={
+  archivum:document.getElementById('pane-archivum'),
+  animus:document.getElementById('pane-animus'),
+  denobis:document.getElementById('pane-denobis'),
+};
+let nvSyncing=false;
+
+function nvGo(i,silent){
+  i=Math.max(0,Math.min(NVN-1,i|0));
+  const key=NV[i].key;
+  nvActive=i; nvTarget=i; nvEnterPulse=1;
+  if(nvDeckOpen) nvCloseDeck();
+  Object.keys(PANES).forEach(k=>PANES[k].classList.toggle('on', k===key));
+  nvPaneOpen=!!PANES[key];
+  document.body.classList.toggle('on-map', key==='terra'||key==='mappe');
+
+  if(key==='terra'){
+    closePanelSafe();
+    nvSyncing=true;
+    try{ if(viewMode==='flat'){ zoomOutToGlobe(); } }catch(e){}
+    nvSyncing=false;
+  } else if(key==='mappe'){
+    closePanelSafe();
+    nvSyncing=true;
+    try{
+      if(viewMode!=='flat'){
+        zoom=Math.max(zoom, DETAIL_FROM+0.5);
+        enterFlat();
+        render();
+      }
+    }catch(e){}
+    nvSyncing=false;
+  } else if(key==='archivum'){
+    renderArchive();
+  } else if(key==='animus'){
+    renderAnimus();
+  }
+  PANES[key] && PANES[key].scrollTo && PANES[key].scrollTo(0,0);
+}
+function closePanelSafe(){ try{ closePanel(); }catch(e){} }
+function zoomOutToGlobe(){
+  // leave the flat map and settle back onto a readable globe
+  try{
+    if(viewMode==='flat'){
+      flatZ=Math.min(flatZ, DETAIL_FROM-0.6);
+      enterGlobe();
+      zoom=Math.min(zoom, DETAIL_FROM-0.6);
+      render(); layout(); render();
+    }
+  }catch(e){}
+}
+
+/* Zooming the globe past the detail threshold really does move between
+   Terra and Mappe, so the navigator follows the map rather than fighting it. */
+const _enterFlatAt=enterFlatAt;
+enterFlatAt=function(){ const r=_enterFlatAt.apply(this,arguments); nvFollowMap(); return r; };
+const _enterGlobe=enterGlobe;
+enterGlobe=function(){ const r=_enterGlobe.apply(this,arguments); nvFollowMap(); return r; };
+function nvFollowMap(){
+  if(nvSyncing) return;
+  const key=NV[nvActive].key;
+  if(key!=='terra'&&key!=='mappe') return;
+  const want=(viewMode==='flat')?2:0;
+  if(want!==nvActive){ nvActive=want; nvTarget=want; }
+}
+
+/* ==========================================================================
+   ARCHIVUM
+   ========================================================================== */
+const archList=document.getElementById('arch-list');
+const archSearch=document.getElementById('arch-search');
+const archStats=document.getElementById('arch-stats');
+
+function fmtLen(s){
+  if(!s||!isFinite(s)) return '—';
+  const m=Math.floor(s/60), r=Math.round(s%60);
+  return m+':'+String(r).padStart(2,'0');
+}
+function renderArchive(){
+  document.querySelectorAll('#arch-seg button').forEach(b=>
+    b.classList.toggle('on', b.dataset.scope===(currentView==='private'?'private':'public')));
+  const q=(archSearch.value||'').trim().toLowerCase();
+  let pins=[];
+  try{ pins=activePins(); }catch(e){ pins=[]; }
+  const rows=pins.map((p,i)=>({p,i})).filter(({p})=>{
+    if(!q) return true;
+    const hay=[p.title,p.place,p.who,(p.tags||[]).join(' ')].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  let total=0; pins.forEach(p=>{ if(p.dur) total+=p.dur; });
+  archStats.textContent = pins.length
+    ? `${pins.length} ${pins.length===1?'sound':'sounds'}${total?' · '+fmtLen(total)+' of listening':''}${q?` · ${rows.length} matching`:''}`
+    : '';
+  archList.innerHTML='';
+  if(!rows.length){
+    const d=document.createElement('div'); d.className='arch-empty';
+    d.textContent = pins.length ? 'Nothing matches that.'
+      : (currentView==='private' ? 'Your private archive is empty — record something.'
+                                 : 'No sounds here yet. Record the first one.');
+    archList.appendChild(d); return;
+  }
+  rows.sort((a,b)=>{
+    const ta=new Date(a.p.madeAt||a.p.created_at||0).getTime()||0;
+    const tb=new Date(b.p.madeAt||b.p.created_at||0).getTime()||0;
+    return tb-ta;
+  });
+  rows.forEach(({p,i})=>{
+    const b=document.createElement('button');
+    b.className='arch-row';
+    const when=p.madeAt?new Date(p.madeAt):(p.created_at?new Date(p.created_at):null);
+    const stamp=when&&!isNaN(when)?when.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):String(p.year||'');
+    b.innerHTML=`<span class="ar-orb"><i></i></span>
+      <span class="ar-body">
+        <span class="ar-title"></span>
+        <span class="ar-meta"></span>
+      </span>
+      <span class="ar-dur">${fmtLen(p.dur)}</span>`;
+    b.querySelector('.ar-title').textContent=p.title||'Untitled';
+    b.querySelector('.ar-meta').textContent=[p.place,stamp,(p.tags||[]).slice(0,2).join(' · ')].filter(Boolean).join(' · ');
+    b.addEventListener('click',()=>{
+      nvGo(0);
+      setTimeout(()=>{ try{ flyTo(p.lat,p.lng); openPanel(i); }catch(e){} },260);
+    });
+    archList.appendChild(b);
+  });
+}
+document.querySelectorAll('#arch-seg button').forEach(b=>b.addEventListener('click',()=>{
+  const want=b.dataset.scope;
+  if(want==='private'){ document.getElementById('menu-private').click(); }
+  else { document.getElementById('menu-public').click(); }
+  setTimeout(renderArchive,60);
+}));
+archSearch.addEventListener('input',renderArchive);
+document.getElementById('arch-selections').addEventListener('click',()=>{ document.getElementById('menu-selections').click(); });
+
+/* ==========================================================================
+   ANIMUS
+   ========================================================================== */
+function renderAnimus(){
+  const card=document.getElementById('animus-card');
+  const inn=(()=>{ try{ return signedIn(); }catch(e){ return false; } })();
+  const u=currentUser||{};
+  const initial=inn ? (u.name||u.email||'·').trim().charAt(0).toUpperCase() : '';
+  card.innerHTML=`<div class="av" style="${u.avatar?`background-image:url(${u.avatar})`:''}">${u.avatar?'':initial}</div>
+    <div class="who"><b></b><small></small></div>`;
+  card.querySelector('b').textContent = inn ? (u.name||'Signed in') : 'Listening anonymously';
+  card.querySelector('small').textContent = inn ? u.email : 'You can record and contribute without an account.';
+
+  let mine=0, priv=0, sels=0;
+  try{ mine=publicPins.filter(p=>p.mine).length; }catch(e){}
+  try{ priv=privatePins.length; }catch(e){}
+  try{ sels=selections.length; }catch(e){}
+  document.getElementById('animus-stats').innerHTML=
+    `<div><div class="n">${mine}</div><div class="k">Contributed</div></div>
+     <div><div class="n">${priv}</div><div class="k">Private</div></div>
+     <div><div class="n">${sels}</div><div class="k">Selections</div></div>`;
+  document.getElementById('an-account').textContent = inn ? 'Sign out' : 'Sign in or create an account';
+  (async()=>{
+    try{
+      const n=await countStoredTiles();
+      document.getElementById('an-tiles').textContent = n
+        ? `${n.toLocaleString()} map tiles saved on this device`
+        : 'No map areas saved for offline use yet.';
+    }catch(e){}
+  })();
+}
+document.getElementById('an-selections').addEventListener('click',()=>document.getElementById('menu-selections').click());
+document.getElementById('an-export').addEventListener('click',()=>document.getElementById('menu-export').click());
+document.getElementById('an-import').addEventListener('click',()=>document.getElementById('import-file').click());
+document.getElementById('an-save-area').addEventListener('click',()=>{ nvGo(NV[nvActive].key==='mappe'?2:0); setTimeout(()=>document.getElementById('menu-save-area').click(),300); });
+document.getElementById('an-clear-tiles').addEventListener('click',()=>{ document.getElementById('menu-clear-tiles').click(); setTimeout(renderAnimus,600); });
+document.getElementById('an-account').addEventListener('click',()=>{ document.getElementById('menu-account').click(); setTimeout(renderAnimus,400); });
+document.getElementById('nobis-start').addEventListener('click',()=>nvGo(0));
+
+const _updateViewUI=updateViewUI;
+updateViewUI=function(){ const r=_updateViewUI.apply(this,arguments); try{ renderArchive(); renderAnimus(); }catch(e){} return r; };
+const _updateAccount=updateAccount;
+updateAccount=function(){ const r=_updateAccount.apply(this,arguments); try{ renderAnimus(); }catch(e){} return r; };
+
+/* ==========================================================================
+   THE RECORDER — reachable from every screen
+   ========================================================================== */
+const rxEl=document.getElementById('recorder');
+const rxCv=document.getElementById('rx-wave');
+const rxG=rxCv.getContext('2d');
+const rxBtn=document.getElementById('rx-btn');
+const rxTimer=document.getElementById('rx-timer');
+const rxCaption=document.getElementById('rx-caption');
+const rxErr=document.getElementById('rx-error');
+const rxActions=document.getElementById('rx-actions');
+const rxSpecImg=document.getElementById('rx-spec');
+const recOrb=document.getElementById('rec-orb');
+const recOrbLabel=document.getElementById('rec-orb-label');
+
+let rxStream=null, rxCtx=null, rxAnalyser=null, rxRecorder=null, rxMime='', rxChunks=[];
+let rxState='idle';              // idle | recording | review
+let rxPeaks=[], rxT0=0, rxRaf=null, rxOpen=false;
+let rxPeakDb=-99, rxRmsDb=-99, rxClipUntil=0, rxDur=0, rxPlaying=false;
+const RX_BAR=3;
+
+function rxFit(){
+  const d=Math.min(window.devicePixelRatio||1,2.5);
+  const w=rxCv.clientWidth||innerWidth, h=rxCv.clientHeight||300;
+  rxCv.width=Math.round(w*d); rxCv.height=Math.round(h*d);
+  rxG.setTransform(d,0,0,d,0,0);
+}
+addEventListener('resize',()=>{ if(rxOpen) rxFit(); });
+
+function rxSetTimer(ms){
+  const cs=Math.floor(ms/10)%100, s=Math.floor(ms/1000)%60, m=Math.floor(ms/60000);
+  rxTimer.innerHTML=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}<small>:${String(cs).padStart(2,'0')}</small>`;
+}
+const rxDb=v=>20*Math.log10(Math.max(v,0.00003));
+function rxShowDb(el,v){ el.textContent = v<=-90 ? '−∞' : (v>=0?'0.0':v.toFixed(1).replace('-','−')); }
+
+function rxDrawWave(){
+  const w=rxCv.clientWidth||innerWidth, h=rxCv.clientHeight||300;
+  const mid=h*0.5;
+  rxG.clearRect(0,0,w,h);
+
+  // baseline
+  rxG.strokeStyle='rgba(237,232,221,.10)'; rxG.lineWidth=1;
+  rxG.beginPath(); rxG.moveTo(0,mid+.5); rxG.lineTo(w,mid+.5); rxG.stroke();
+
+  const headX = rxState==='review' ? w*(rxPlayProgress()) : Math.round(w*0.62);
+  const half=h*0.40;
+
+  if(rxState==='review'){
+    // the whole take, fitted to the screen
+    const n=Math.max(1,Math.floor(w/RX_BAR));
+    for(let i=0;i<n;i++){
+      const a=Math.floor(i*rxPeaks.length/n), b=Math.floor((i+1)*rxPeaks.length/n);
+      let pk=0; for(let k=a;k<Math.max(a+1,b);k++) if(rxPeaks[k]>pk) pk=rxPeaks[k];
+      const x=i*RX_BAR, hh=Math.max(1,pk*half);
+      const past=x<=headX;
+      rxG.fillStyle = past ? 'rgba(237,232,221,.85)' : 'rgba(237,232,221,.26)';
+      rxG.fillRect(x,mid-hh,RX_BAR-1,hh*2);
+    }
+  } else {
+    const count=Math.floor(headX/RX_BAR);
+    const start=Math.max(0,rxPeaks.length-count);
+    for(let i=start;i<rxPeaks.length;i++){
+      const x=headX-(rxPeaks.length-i)*RX_BAR;
+      if(x<-RX_BAR) continue;
+      const hh=Math.max(1,rxPeaks[i]*half);
+      const age=(rxPeaks.length-i)/Math.max(1,count);
+      rxG.fillStyle=`rgba(237,232,221,${(0.92-age*0.45).toFixed(3)})`;
+      rxG.fillRect(x,mid-hh,RX_BAR-1,hh*2);
+    }
+    // the ground ahead of the head
+    rxG.fillStyle='rgba(237,232,221,.06)';
+    for(let x=headX+RX_BAR;x<w;x+=RX_BAR) rxG.fillRect(x,mid-1,RX_BAR-1,2);
+  }
+
+  // playhead — while recording it is the now; in review it is playback,
+  // so it only appears once something is actually running.
+  if(rxState==='review' && !rxPlaying) return;
+  const hy=h*0.34;
+  const grad=rxG.createLinearGradient(0,mid-hy,0,mid+hy);
+  grad.addColorStop(0,'rgba(217,72,59,.15)');
+  grad.addColorStop(.5,'rgba(255,96,80,1)');
+  grad.addColorStop(1,'rgba(217,72,59,.15)');
+  rxG.strokeStyle=grad; rxG.lineWidth=2;
+  rxG.beginPath(); rxG.moveTo(headX,mid-hy); rxG.lineTo(headX,mid+hy); rxG.stroke();
+  rxG.save(); rxG.shadowColor='rgba(255,90,74,.8)'; rxG.shadowBlur=12;
+  rxG.strokeStyle='rgba(255,110,94,.9)'; rxG.lineWidth=1;
+  rxG.beginPath(); rxG.moveTo(headX,mid-hy*.7); rxG.lineTo(headX,mid+hy*.7); rxG.stroke();
+  rxG.restore();
+}
+function rxPlayProgress(){
+  const pb=document.getElementById('rec-playback');
+  if(!pb||!pb.duration||!isFinite(pb.duration)) return 0;
+  return Math.max(0,Math.min(1,pb.currentTime/pb.duration));
+}
+
+function rxLoop(){
+  if(rxState==='recording' && rxAnalyser){
+    const a=new Float32Array(rxAnalyser.fftSize);
+    rxAnalyser.getFloatTimeDomainData(a);
+    let pk=0,s=0;
+    for(let i=0;i<a.length;i++){ const v=Math.abs(a[i]); if(v>pk) pk=v; s+=a[i]*a[i]; }
+    const rms=Math.sqrt(s/a.length);
+    rxPeaks.push(Math.min(1,pk));
+    if(rxPeaks.length>240000) rxPeaks.shift();
+    rxPeakDb=rxPeakDb*0.72+rxDb(pk)*0.28;
+    rxRmsDb=rxRmsDb*0.8+rxDb(rms)*0.2;
+    if(pk>0.985) rxClipUntil=performance.now()+900;
+    rxShowDb(document.getElementById('rx-peak'),rxPeakDb);
+    rxShowDb(document.getElementById('rx-rms'),rxRmsDb);
+    document.getElementById('rx-clip').classList.toggle('on',performance.now()<rxClipUntil);
+    rxSetTimer(performance.now()-rxT0);
+  }
+  rxDrawWave();
+  rxRaf=requestAnimationFrame(rxLoop);
+}
+
+function rxOpenView(){
+  // reset the whole flow, exactly as the old step 1 did
+  try{
+    step=1; recBlobUrl=null; recBlob=null; recPhoto=null; recLoc=null;
+    recVis=(currentView==='private'&&currentUser)?'private':'public';
+    document.getElementById('rec-title').value='';
+    document.getElementById('rec-why').value='';
+    const pp=document.getElementById('photo-preview');
+    pp.style.backgroundImage=''; pp.textContent='None';
+    document.getElementById('loc-coords').textContent='—';
+    document.getElementById('loc-status').textContent='Not set yet';
+    document.getElementById('loc-lat').value=''; document.getElementById('loc-lng').value='';
+    recTags.length=0;
+    renderTagPicker(document.getElementById('rec-tags'), recTags,
+      sel=>{ document.getElementById('rec-tag-count').textContent=sel.length+' of '+MAX_TAGS+' chosen'; });
+    document.getElementById('rec-tag-count').textContent='0 of '+MAX_TAGS+' chosen';
+    setVis(recVis);
+    recSpec=null;
+    document.getElementById('rec-spec-preview').style.display='none';
+    document.getElementById('spec-status').textContent='';
+  }catch(e){}
+
+  rxPeaks=[]; rxState='idle'; rxPeakDb=-99; rxRmsDb=-99; rxDur=0;
+  rxSetTimer(0);
+  rxCaption.textContent='Tap to start';
+  rxErr.style.display='none';
+  rxActions.classList.remove('on');
+  rxSpecImg.style.display='none'; rxSpecImg.removeAttribute('src');
+  rxBtn.classList.remove('recording'); rxBtn.disabled=false;
+  document.getElementById('rx-clip').classList.remove('on');
+  rxShowDb(document.getElementById('rx-peak'),-99);
+  rxShowDb(document.getElementById('rx-rms'),-99);
+
+  rxOpen=true;
+  rxEl.classList.add('on');
+  recOrb.classList.add('hide'); recOrbLabel.classList.add('hide');
+  requestAnimationFrame(()=>{ rxFit(); if(!rxRaf) rxLoop(); });
+}
+function rxCloseView(){
+  rxOpen=false;
+  rxEl.classList.remove('on');
+  recOrb.classList.remove('hide'); recOrbLabel.classList.remove('hide');
+  recOrb.classList.remove('armed');
+  cancelAnimationFrame(rxRaf); rxRaf=null;
+  rxStopPreview();
+}
+
+async function rxStart(){
+  rxErr.style.display='none';
+  try{
+    rxStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  }catch(err){
+    try{ rxStream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+    catch(e2){
+      rxErr.textContent='No microphone available here. You can use a sound file instead.';
+      rxErr.style.display='block'; return;
+    }
+  }
+  rxChunks=[]; rxRecorder=null; rxMime='';
+  const wanted=['audio/mp4','audio/mp4;codecs=mp4a.40.2','audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'];
+  const ok=(window.MediaRecorder&&MediaRecorder.isTypeSupported)
+    ? wanted.filter(t=>{ try{ return MediaRecorder.isTypeSupported(t); }catch(e){ return false; } }) : [];
+  for(const t of ok){ try{ rxRecorder=new MediaRecorder(rxStream,{mimeType:t}); rxMime=t; break; }catch(e){} }
+  if(!rxRecorder){ try{ rxRecorder=new MediaRecorder(rxStream); rxMime=rxRecorder.mimeType||''; }catch(e){} }
+  if(!rxRecorder){
+    rxErr.textContent='Recording is not supported in this browser. You can use a sound file instead.';
+    rxErr.style.display='block'; rxRelease(); return;
+  }
+  rxRecorder.ondataavailable=e=>{ if(e.data.size) rxChunks.push(e.data); };
+  rxRecorder.onstop=()=>{
+    const type=(rxRecorder&&rxRecorder.mimeType)||rxMime||(rxChunks[0]&&rxChunks[0].type)||'audio/mp4';
+    const blob=new Blob(rxChunks,{type});
+    rxRelease();
+    rxAdopt(blob,'Listen back before you keep it');
+  };
+  rxRecorder.start();
+
+  rxCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const src=rxCtx.createMediaStreamSource(rxStream);
+  rxAnalyser=rxCtx.createAnalyser(); rxAnalyser.fftSize=1024; rxAnalyser.smoothingTimeConstant=0;
+  src.connect(rxAnalyser);
+
+  rxPeaks=[]; rxT0=performance.now(); rxState='recording';
+  rxBtn.classList.add('recording');
+  recOrb.classList.add('armed');
+  rxCaption.textContent='Recording — tap to stop';
+  rxActions.classList.remove('on');
+}
+function rxRelease(){
+  if(rxStream){ rxStream.getTracks().forEach(t=>t.stop()); rxStream=null; }
+  if(rxCtx){ rxCtx.close().catch(()=>{}); rxCtx=null; }
+  rxAnalyser=null;
+  rxBtn.classList.remove('recording');
+  recOrb.classList.remove('armed');
+}
+function rxStop(){
+  if(rxRecorder&&rxRecorder.state==='recording'){ rxDur=(performance.now()-rxT0)/1000; rxRecorder.stop(); }
+  else rxRelease();
+}
+async function rxAdopt(blob,caption){
+  recBlob=blob;
+  recBlobUrl=URL.createObjectURL(blob);
+  rxState='review';
+  if(rxPeaks.length){
+    let pk=0,sq=0;
+    for(const v of rxPeaks){ if(v>pk) pk=v; sq+=v*v; }
+    rxPeakDb=rxDb(pk); rxRmsDb=rxDb(Math.sqrt(sq/rxPeaks.length));
+    rxShowDb(document.getElementById('rx-peak'),rxPeakDb);
+    rxShowDb(document.getElementById('rx-rms'),rxRmsDb);
+    document.getElementById('rx-clip').classList.toggle('on',pk>0.985);
+  }
+  rxCaption.textContent=caption;
+  rxActions.classList.add('on');
+  const pb=document.getElementById('rec-playback');
+  pb.src=recBlobUrl;
+  pb.onloadedmetadata=()=>{ if(isFinite(pb.duration)&&pb.duration>0){ rxDur=pb.duration; rxSetTimer(rxDur*1000); } };
+  if(!rxPeaks.length){
+    // a file dropped in has no live peaks — read them off the decoded audio
+    try{
+      const ac=new (window.AudioContext||window.webkitAudioContext)();
+      const buf=await ac.decodeAudioData(await blob.arrayBuffer());
+      const ch=buf.getChannelData(0), N=1400, step=Math.max(1,Math.floor(ch.length/N));
+      for(let i=0;i<ch.length;i+=step){
+        let pk=0; for(let k=i;k<Math.min(ch.length,i+step);k++){ const v=Math.abs(ch[k]); if(v>pk) pk=v; }
+        rxPeaks.push(pk);
+      }
+      rxDur=buf.duration; rxSetTimer(rxDur*1000);
+      ac.close().catch(()=>{});
+    }catch(e){}
+  }
+  try{
+    await makeRecSpectrogram(blob);
+    if(recSpec&&recSpec.url){ rxSpecImg.src=recSpec.url; rxSpecImg.style.display='block'; }
+  }catch(e){}
+}
+function rxStopPreview(){
+  const pb=document.getElementById('rec-playback');
+  try{ pb.pause(); }catch(e){}
+  rxPlaying=false;
+  document.getElementById('rx-play').textContent='Listen back';
+}
+
+rxBtn.addEventListener('click',()=>{
+  if(rxState==='recording') rxStop();
+  else if(rxState==='review'){ rxAgain(); }
+  else rxStart();
+});
+function rxAgain(){
+  rxStopPreview();
+  recBlob=null;
+  if(recBlobUrl){ try{ URL.revokeObjectURL(recBlobUrl); }catch(e){} recBlobUrl=null; }
+  recSpec=null;
+  rxPeaks=[]; rxState='idle'; rxDur=0; rxSetTimer(0);
+  rxActions.classList.remove('on');
+  rxSpecImg.style.display='none'; rxSpecImg.removeAttribute('src');
+  rxCaption.textContent='Tap to start';
+  rxPeakDb=-99; rxRmsDb=-99;
+  rxShowDb(document.getElementById('rx-peak'),-99);
+  rxShowDb(document.getElementById('rx-rms'),-99);
+}
+document.getElementById('rx-again').addEventListener('click',rxAgain);
+document.getElementById('rx-play').addEventListener('click',()=>{
+  const pb=document.getElementById('rec-playback');
+  if(rxPlaying){ rxStopPreview(); return; }
+  pb.currentTime=0;
+  pb.play().then(()=>{ rxPlaying=true; document.getElementById('rx-play').textContent='Stop'; }).catch(()=>{});
+  pb.onended=()=>rxStopPreview();
+});
+document.getElementById('rx-keep').addEventListener('click',()=>{
+  if(!recBlob) return;
+  rxStopPreview();
+  rxCloseView();
+  try{ showModal(recModal); goStep(2); autoLocate(); }catch(e){}
+});
+document.getElementById('rx-file').addEventListener('click',()=>{
+  const inp=document.getElementById('rec-upload');
+  inp.value='';
+  inp.onchange=null;
+  const handler=async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    inp.removeEventListener('change',handler);
+    rxPeaks=[];
+    await rxAdopt(f,f.name);
+  };
+  inp.addEventListener('change',handler);
+  inp.click();
+});
+document.getElementById('rx-close').addEventListener('click',async ()=>{
+  if(rxState==='recording'){ rxStop(); }
+  if(recBlob){
+    let ok=true;
+    try{ ok=await ask('Discard this take?','The sound you just recorded will not be saved.','Discard','Keep it'); }catch(e){}
+    if(!ok) return;
+  }
+  rxAgain();
+  rxCloseView();
+});
+
+/* the orb itself */
+recOrb.addEventListener('click',()=>{ if(!rxOpen) rxOpenView(); });
+openRecordFlow=function(){ rxOpenView(); };
+try{
+  const cb=document.getElementById('contribute-btn');
+  if(cb) cb.addEventListener('click',e=>{ e.stopPropagation(); rxOpenView(); },true);
+}catch(e){}
+
+/* Coming back from step 2 returns to the take, not to a dead step 1. */
+try{
+  document.getElementById('loc-back').addEventListener('click',()=>{
+    hideModal(recModal);
+    rxOpen=true; rxEl.classList.add('on');
+    recOrb.classList.add('hide'); recOrbLabel.classList.add('hide');
+    requestAnimationFrame(()=>{ rxFit(); if(!rxRaf) rxLoop(); });
+  });
+}catch(e){}
+
+/* Hide the orb while any modal or the side panel is up, so it never
+   covers what you are reading — it comes straight back afterwards. */
+setInterval(()=>{
+  const sheet=!!document.querySelector('.modal.open') ||
+              document.getElementById('panel').classList.contains('open') ||
+              rxOpen || (typeof pickingLocation!=='undefined' && pickingLocation);
+  const busy=sheet||nvDeckOpen;
+  recOrb.classList.toggle('hide',busy);
+  recOrbLabel.classList.toggle('hide',busy);
+  // the rail would otherwise sit on top of the reading sheet
+  nvCv.classList.toggle('dim', sheet && !nvDeckOpen);
+  nvHit.classList.toggle('off', sheet && !nvDeckOpen);
+  if(sheet) railHint.classList.add('hide');
+},220);
+
+/* ==========================================================================
+   KEYBOARD + BOOT
+   ========================================================================== */
+addEventListener('keydown',e=>{
+  if(rxOpen && e.key==='Escape'){ document.getElementById('rx-close').click(); return; }
+  if(nvDeckOpen){
+    if(e.key==='Escape'){ nvCloseDeck(); return; }
+    if(e.key==='ArrowDown'){ nvTarget=Math.min(NVN-1,nvTarget+1); return; }
+    if(e.key==='ArrowUp'){ nvTarget=Math.max(0,nvTarget-1); return; }
+    if(e.key==='Enter'){ nvGo(Math.round(nvPos)); return; }
+  }
+  if(e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+  const n=parseInt(e.key,10);
+  if(n>=1&&n<=NVN) nvGo(n-1);
+  if(e.key==='r'||e.key==='R'){ if(!rxOpen) rxOpenView(); }
+});
+nvBack.addEventListener('click',()=>{ if(nvDeckOpen) nvCloseDeck(); });
+
+nvResize();
+nvGo(0,true);
+requestAnimationFrame(nvFrame);
+setTimeout(()=>{ railHint.classList.add('hide'); },7000);
+
+})();
+
 </script>
 </body>
 </html>
