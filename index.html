@@ -61,45 +61,25 @@
     flex:0 0 auto; position:relative; z-index:30;
     padding:calc(22px + env(safe-area-inset-top)) calc(28px + env(safe-area-inset-right)) 16px calc(28px + env(safe-area-inset-left));
     display:flex; align-items:flex-start; justify-content:space-between; gap:20px;
-    background:var(--bg);
+    background:transparent;
+    /* a soft scrim only directly behind the text keeps the white logo legible
+       over the globe/stars, without a hard black panel */
+    background:linear-gradient(to bottom, rgba(0,1,3,.55) 0%, rgba(0,1,3,.32) 46%, rgba(0,1,3,0) 100%);
   }
-  /* The zone itself is opaque so no star ever lands behind the title; the
-     blend into the globe happens in a strip hanging below it instead. This
-     used to be one gradient across the whole zone, which left the starfield
-     showing through the lower half — stars inside the text block. */
-  #top-zone::after{
-    /* Half the reach of before, and eased rather than linear: it leaves the
-       zone at full black so there's no seam, collapses fast, then tails off
-       to nothing — no banding, and far less of the map sitting under it. */
-    content:''; position:absolute; left:0; right:0; top:100%; height:16px;
-    background:linear-gradient(to bottom,
-      rgba(0,1,3,1) 0%, rgba(0,1,3,.72) 10%, rgba(0,1,3,.48) 22%,
-      rgba(0,1,3,.30) 36%, rgba(0,1,3,.17) 52%, rgba(0,1,3,.08) 70%,
-      rgba(0,1,3,.03) 85%, rgba(0,1,3,0) 100%);
-    pointer-events:none;
-  }
+  #top-zone::after{ content:none; }
   #globe-zone{
-    flex:1 1 auto;
-    position:relative;
+    position:absolute; inset:0;      /* full-screen: the globe/space is the backdrop */
     overflow:hidden;
-    min-height:0;
     z-index:1;
     contain:strict;      /* the globe can never paint outside its own zone */
   }
   #bottom-zone{
-    flex:0 0 auto; position:relative; z-index:6;
+    flex:0 0 auto; position:absolute; left:0; right:0; bottom:0; z-index:6;
     padding:18px calc(28px + env(safe-area-inset-right)) calc(26px + env(safe-area-inset-bottom)) calc(28px + env(safe-area-inset-left));
-    background:linear-gradient(to top, rgba(0,1,3,.94) 0%, rgba(0,1,3,.9) 62%, rgba(0,1,3,0) 100%);
+    background:linear-gradient(to top, rgba(0,1,3,.55) 0%, rgba(0,1,3,.25) 55%, rgba(0,1,3,0) 100%);
     display:flex; flex-direction:column; gap:22px;
   }
-  #bottom-zone::before{
-    content:''; position:absolute; left:0; right:0; bottom:100%; height:15px;
-    background:linear-gradient(to top,
-      rgba(0,1,3,1) 0%, rgba(0,1,3,.72) 10%, rgba(0,1,3,.48) 22%,
-      rgba(0,1,3,.30) 36%, rgba(0,1,3,.17) 52%, rgba(0,1,3,.08) 70%,
-      rgba(0,1,3,.03) 85%, rgba(0,1,3,0) 100%);
-    pointer-events:none;
-  }
+  #bottom-zone::before{ content:none; }
 
   .eyebrow{
     font-size:10.5px; letter-spacing:0.16em; text-transform:uppercase;
@@ -302,18 +282,23 @@
   #time-handle::after{ content:''; position:absolute; top:-4px; left:-4px; width:9px; height:9px; border-radius:50%; background:var(--time-accent); box-shadow:0 0 10px var(--time-accent); }
   #time-readout{ display:none; }
   #year-select{
-    display:flex; flex-direction:column; align-items:center; gap:3px;
-    user-select:none; touch-action:none; margin:2px auto 2px; width:max-content;
+    position:fixed; left:calc(20px + env(safe-area-inset-left));
+    bottom:calc(30px + env(safe-area-inset-bottom)); z-index:8;
+    display:flex; flex-direction:column; align-items:center; gap:1px;
+    user-select:none; touch-action:none; width:max-content;
   }
+  /* only shown on the Terra map; hidden inside sections */
+  body.in-section #year-select{ display:none; }
   #year-select button{
     background:none; border:0; color:var(--text-muted); cursor:pointer;
-    font-size:11px; line-height:1; padding:3px 10px; transition:color .18s, opacity .18s;
+    font-size:10px; line-height:1; padding:2px 8px; transition:color .18s, opacity .18s;
   }
   #year-select button:hover{ color:var(--pin-active); }
   #year-select button:disabled{ opacity:.22; cursor:default; }
   #year-now{
-    font-family:var(--serif); font-size:26px; letter-spacing:.06em; color:var(--time-accent);
+    font-family:var(--serif); font-size:22px; letter-spacing:.06em; color:var(--time-accent);
     font-variant-numeric:tabular-nums; min-width:4ch; text-align:center;
+    text-shadow:0 1px 8px rgba(0,0,0,.8);
   }
   #year-now.locked{ color:var(--text-muted); opacity:.55; }
 
@@ -4737,7 +4722,6 @@ document.getElementById('storage-warn-close').addEventListener('click',()=>{
 const NV=[
   {key:'terra',    name:'Terra',    sub:'',        base:'#123B63', hi:'#3E7FB8', ink:'#9FD0F5', dark:true },
   {key:'archivum', name:'Archivum', sub:'',  base:'#B5622E', hi:'#F2A25C', ink:'#2A1206', dark:true },
-  {key:'mappe',    name:'Mappe',    sub:'',          base:'#8A7A1E', hi:'#D8C24E', ink:'#3C3406', dark:false},
   {key:'animus',   name:'Animus',   sub:'',  base:'#D6D1C7', hi:'#FFFFFF', ink:'#5E5A52', dark:false},
   {key:'denobis',  name:'de nobis', sub:'',          base:'#5B3A96', hi:'#9C79E0', ink:'#D9C7FF', dark:true },
 ];
@@ -4748,13 +4732,13 @@ const nvG=nvCv.getContext('2d');
 const nvHit=document.getElementById('nav-hit');
 const nvBack=document.getElementById('nav-back');
 const nvCap=document.getElementById('deck-caption');
-const nvCapSub=nvCap.querySelector('.dc-sub');
+const nvCapSub=nvCap?nvCap.querySelector('.dc-sub'):null;
 const railHint=document.getElementById('rail-hint');  // may be null (hint removed)
 
-let nvPos=0;             // continuous carousel position
+let nvPos=0;             // continuous carousel position (for smooth deck→home)
 let nvTarget=0;          // snap target
 let nvActive=0;          // section actually on screen
-let nvDeck=0;            // 0 = rail, 1 = deck (animated)
+let nvDeck=0;            // compat alias for nvDeckT
 let nvDeckOpen=false;
 let nvDrag=false, nvLastY=0, nvMoved=0, nvDownT=0, nvDownX=0, nvDownY=0, nvVel=0;
 let nvSpin=0, nvLastFrame=0, nvLevel=0, nvEnterPulse=0, nvPaneOpen=false;
@@ -4768,78 +4752,60 @@ function nvResize(){
 addEventListener('resize',nvResize);
 
 /* ---------- geometry ----------
-   Three layouts share one sphere stack:
-     • deck  — full-screen vertical column; the opening screen.
-     • rail  — small column, top-right; shown on the map (Terra / Mappe).
-     • bar   — horizontal row, bottom-centre; shown inside a section pane.
-   nvLay animates 0→1 for deck, and the rail/bar targets are chosen by which
-   section is active. Spheres never overlap: spacing always exceeds the sum of
-   neighbouring radii. */
-const nvScale=d=>{ const a=Math.abs(d); return Math.max(.40, 1/(1+.42*a)); };
+   Two layouts, one stack:
+     • deck — a full-screen vertical column; the opening screen. Tap a globe
+       to enter it.
+     • bar  — a fixed horizontal row pinned to the bottom-centre; shown in
+       every section (Terra included). It never moves and is always present.
+   nvDeckT animates 1 (deck) → 0 (bar). Everything is derived from that single
+   value, so there is nothing to drift or lose. */
+const nvScale=d=>{ const a=Math.abs(d); return Math.max(.55, 1/(1+.34*a)); };
 
-let nvLayout='deck';      // 'deck' | 'rail' | 'bar'  (target)
-let nvDeckT=1;            // 1 = deck, 0 = collapsed (rail or bar)
-let nvBarT=0;             // 0 = rail arrangement, 1 = bar arrangement
+let nvLayout='deck';      // 'deck' | 'bar'
+let nvDeckT=1;            // 1 = deck, 0 = bar
 
 function safeTop(){ try{ const n=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top')); return isFinite(n)?n:0; }catch(e){ return 0; } }
 function safeBot(){ try{ const n=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-bot')); return isFinite(n)?n:0; }catch(e){ return 0; } }
 
 function nvPositions(){
   const W=innerWidth,H=innerHeight;
-  const deckR=Math.min(W*0.26, H*0.128, 118);
-  const railR=Math.min(22, H*0.032);
-  const barR =Math.min(19, W*0.052);
+  const deckR=Math.min(W*0.24, H*0.115, 108);
+  const barR =Math.min(20, W*0.05, H*0.03);
+  const R = barR+(deckR-barR)*nvDeckT;
 
-  // radius per sphere, blended between the collapsed size (rail/bar) and deck
-  const collapsedR = railR+(barR-railR)*nvBarT;
-  const R = collapsedR+(deckR-collapsedR)*nvDeckT;
-  const rs=[];
-  for(let i=0;i<NVN;i++) rs.push(R*nvScale(i-nvPos));
-
-  // --- axis positions along the stack (vertical for deck/rail, we reuse for
-  //     bar by swapping axes at the end) ---
-  // gap factor guarantees no overlap: centre spacing = (r_a+r_b)*gap, gap>1.
-  const deckGap=1.16, railGap=1.18, barGap=1.30;
-  const gap = (railGap+(barGap-railGap)*nvBarT)*(1-nvDeckT) + deckGap*nvDeckT;
-  const ys=[0];
-  for(let i=1;i<NVN;i++) ys[i]=ys[i-1]+(rs[i-1]+rs[i])*gap;
-
+  // ---- DECK: vertical column, evenly spaced, fitted & centred ----
+  // In the deck the active globe is the biggest; neighbours shrink by nvScale.
+  const dRs=[];
+  for(let i=0;i<NVN;i++) dRs.push(R*(nvDeckT>0.5?nvScale(i-nvPos):1));
+  const deckGap=1.20;
+  const dys=[0];
+  for(let i=1;i<NVN;i++) dys[i]=dys[i-1]+(dRs[i-1]+dRs[i])*deckGap;
   const p=Math.max(0,Math.min(NVN-1,nvPos));
   const i0=Math.floor(p), i1=Math.min(NVN-1,i0+1), f=p-i0;
-  const anchor=ys[i0]+(ys[i1]-ys[i0])*f;
-
-  // deck: whole column fitted & centred vertically
-  const top=-anchor-rs[0], bot=ys[NVN-1]-anchor+rs[NVN-1], span=bot-top;
-  const padT=Math.max(50,H*0.06), padB=Math.max(190,H*0.24);
+  const dAnchor=dys[i0]+(dys[i1]-dys[i0])*f;
+  const dTop=-dAnchor-dRs[0], dBot=dys[NVN-1]-dAnchor+dRs[NVN-1], dSpan=dBot-dTop;
+  const padT=Math.max(46,H*0.055), padB=Math.max(200,H*0.25);
   const avail=Math.max(60,H-padT-padB);
-  const deckX=W*0.5, deckY=padT-top+Math.max(0,(avail-span))/2;
+  const deckX=W*0.5, deckY=padT-dTop+Math.max(0,(avail-dSpan))/2;
 
-  // rail: top-right vertical column
-  const railX=W-Math.max(34,railR+14);
-  const railTop=Math.max(44,railR+20)+safeTop();
-  // place so the active sphere sits near the top
-  const railY=railTop - (ys[Math.round(p)]-anchor) + (ys[Math.round(p)]-anchor);
-  const railAnchorY=railTop;
+  // ---- BAR: fixed horizontal row, evenly spaced, centred on X ----
+  const barGap=2.5;                       // centre-to-centre = barR*barGap
+  const step=barR*barGap;
+  const barSpan=step*(NVN-1);
+  const barY=H-Math.max(52,barR+34)-safeBot();
+  const barX0=W*0.5-barSpan/2;
 
-  // bar: bottom-centre horizontal row (whole row centred on X)
-  const barY=H-Math.max(58,barR+40)-safeBot();
-  const barSpan=ys[NVN-1];
-  const barX=W*0.5 - (barSpan/2) - top*0; // centre the row
-
-  return rs.map((r,i)=>{
-    const off=ys[i]-anchor;                 // signed offset along the stack
-
-    // vertical column point (deck & rail share this, only origin differs)
-    const colX = railX+(deckX-railX)*nvDeckT;
-    const colY = (railAnchorY+off) + ((deckY+off)-(railAnchorY+off))*nvDeckT;
-
-    // horizontal bar point
-    const barPX = (W*0.5) + (ys[i]-barSpan/2);
-    const barPY = barY;
-
-    // blend column→bar by nvBarT (only meaningful when nvDeckT≈0)
-    const x = colX + (barPX-colX)*nvBarT*(1-nvDeckT);
-    const y = colY + (barPY-colY)*nvBarT*(1-nvDeckT);
+  return NV.map((_,i)=>{
+    // deck point for this globe
+    const dR=dRs[i];
+    const dX=deckX, dY=deckY+(dys[i]-dAnchor);
+    // bar point (uniform size)
+    const bX=barX0+step*i, bY=barY;
+    const bR=barR;
+    // blend
+    const x=bX+(dX-bX)*nvDeckT;
+    const y=bY+(dY-bY)*nvDeckT;
+    const r=bR+(dR-bR)*nvDeckT;
     return { i, r, x, y };
   });
 }
@@ -5069,14 +5035,18 @@ function nvFrame(ts){
   nvSpin=(nvSpin+dt*4.2)%360;
   nvLevel+=(nvReadLevel()-nvLevel)*Math.min(1,dt*9);
   const deckTarget = (nvLayout==='deck')?1:0;
-  const barTarget  = (nvLayout==='bar') ?1:0;
-  nvDeckT+=(deckTarget-nvDeckT)*Math.min(1,dt*7.5);
-  nvBarT +=(barTarget -nvBarT )*Math.min(1,dt*7.5);
-  nvDeck=nvDeckT;                    // keep the old name in sync for any reader
+  nvDeckT+=(deckTarget-nvDeckT)*Math.min(1,dt*8);
+  if(Math.abs(deckTarget-nvDeckT)<.002) nvDeckT=deckTarget;
+  nvDeck=nvDeckT;                    // compat
   if(nvEnterPulse>0) nvEnterPulse=Math.max(0,nvEnterPulse-dt*2.4);
 
+  // In the bar (any section) the row is fixed: nvPos tracks the active index
+  // so nothing drifts. Only the open deck lets nvPos glide toward its target.
+  if(nvLayout==='bar' && !nvDrag){
+    nvTarget=nvActive;
+  }
   if(!nvDrag){
-    nvPos+=(nvTarget-nvPos)*Math.min(1,dt*9);
+    nvPos+=(nvTarget-nvPos)*Math.min(1,dt*10);
     if(Math.abs(nvTarget-nvPos)<.001) nvPos=nvTarget;
   }
 
@@ -5086,9 +5056,9 @@ function nvFrame(ts){
   const order=ps.map((o,i)=>i).sort((a,b)=>Math.abs(b-nvPos)-Math.abs(a-nvPos));
   for(const i of order){
     const d=Math.abs(i-nvPos);
-    const isAct=d<.5;
-    let a=Math.max(.42, 1-0.11*d);
-    if(nvDeckT<.5) a*= (d<.5?1:.72);
+    const isAct = (nvLayout==='bar') ? (i===nvActive) : (d<.5);
+    // in the bar every globe is fully visible; in the deck far ones dim a touch
+    let a = (nvLayout==='bar') ? 1 : Math.max(.5, 1-0.12*d);
     if(isAct && nvEnterPulse>0) a=Math.min(1,a+nvEnterPulse*.2);
     nvDrawOrb(nvG,ps[i],NV[i],a,isAct,t);
   }
@@ -5101,7 +5071,8 @@ function nvHitTest(cx,cy){
   let best=-1,bd=1e9;
   ps.forEach(o=>{
     const d=Math.hypot(cx-o.x,cy-o.y);
-    if(d<Math.max(o.r,20)+8 && d<bd){ bd=d; best=o.i; }
+    const hitR=Math.max(o.r,18)+ (nvLayout==='bar'?14:8);
+    if(d<hitR && d<bd){ bd=d; best=o.i; }
   });
   return best;
 }
@@ -5112,7 +5083,7 @@ function nvSpacing(){
   return n? s/n : 60;
 }
 nvHit.addEventListener('pointerdown',e=>{
-  nvHit.setPointerCapture(e.pointerId);
+  try{ nvHit.setPointerCapture(e.pointerId); }catch(_){}
   nvDrag=true; nvLastY=e.clientY; nvMoved=0; nvVel=0;
   nvDownT=performance.now(); nvDownX=e.clientX; nvDownY=e.clientY;
   e.preventDefault();
@@ -5121,60 +5092,63 @@ nvHit.addEventListener('pointermove',e=>{
   if(!nvDrag) return;
   const dy=e.clientY-nvLastY; nvLastY=e.clientY;
   nvMoved+=Math.abs(dy);
-  const sp=nvSpacing();
-  nvPos=Math.max(-.45,Math.min(NVN-1+.45, nvPos - dy/sp));
-  nvVel=-dy/sp;
+  // Only the open deck scrolls by dragging. The bar is fixed — dragging it
+  // does nothing, so the menu can never be flung off-screen.
+  if(nvDeckOpen){
+    const sp=nvSpacing();
+    nvPos=Math.max(0,Math.min(NVN-1, nvPos - dy/sp));
+    nvVel=-dy/sp;
+  }
   e.preventDefault();
 });
 function nvRelease(e){
   if(!nvDrag) return;
   nvDrag=false;
-  const quick=performance.now()-nvDownT<300 && nvMoved<9;
-  if(quick){
-    const i=nvHitTest(e.clientX,e.clientY);
-    if(i>=0){
-      if(!nvDeckOpen){
-        if(i===nvActive) nvOpenDeck();
-        else nvGo(i);
-      } else {
-        if(Math.abs(i-nvTarget)<.5) nvGo(i);
-        else nvTarget=i;
-      }
-    } else if(nvDeckOpen){ nvCloseDeck(); }
+  const quick=performance.now()-nvDownT<320 && nvMoved<10;
+  const i=nvHitTest(e.clientX,e.clientY);
+
+  if(nvDeckOpen){
+    if(quick && i>=0){ nvGo(i); return; }           // tap a globe → enter it
+    // released after a scroll → snap to nearest and enter it
+    let snap=Math.round(nvPos+nvVel*1.8);
+    snap=Math.max(0,Math.min(NVN-1,snap));
+    if(quick){ nvCloseDeck(); return; }             // tap empty space → close
+    nvGo(snap);
     return;
   }
-  let snap=Math.round(nvPos+nvVel*2.2);
-  snap=Math.max(0,Math.min(NVN-1,snap));
-  nvTarget=snap;
-  if(!nvDeckOpen) nvGo(snap,true);
+  // In a section: the bar is a tap target only.
+  if(quick && i>=0){
+    if(i===nvActive) nvOpenDeck();                  // tap the active globe → open the deck
+    else nvGo(i);                                   // tap another → switch section
+  }
 }
 nvHit.addEventListener('pointerup',nvRelease);
-nvHit.addEventListener('pointercancel',()=>{ nvDrag=false; nvTarget=Math.max(0,Math.min(NVN-1,Math.round(nvPos))); });
+nvHit.addEventListener('pointercancel',()=>{ nvDrag=false; if(nvDeckOpen) nvTarget=Math.max(0,Math.min(NVN-1,Math.round(nvPos))); });
 nvHit.addEventListener('wheel',e=>{
+  if(!nvDeckOpen) return;
   e.preventDefault();
-  nvTarget=Math.max(0,Math.min(NVN-1,nvTarget+(e.deltaY>0?1:-1)));
-  if(!nvDeckOpen) nvGo(nvTarget,true);
+  nvTarget=Math.max(0,Math.min(NVN-1,Math.round(nvPos)+(e.deltaY>0?1:-1)));
+  nvPos=nvTarget;
 },{passive:false});
 
 function nvOpenDeck(){
-  nvDeckOpen=true; nvLayout='deck'; nvTarget=nvActive;
-  nvHit.classList.add('deck'); nvBack.classList.add('on'); nvCap.classList.add('on');
-  nvCapUpdate();
+  nvDeckOpen=true; nvLayout='deck'; nvTarget=nvActive; nvPos=nvActive;
+  nvHit.classList.add('deck'); nvHit.classList.remove('bar');
+  nvBack.classList.add('on');
+  // panes hide while the deck is open so the globes read against space
+  Object.keys(PANES).forEach(k=>PANES[k].classList.remove('on'));
+  nvPaneOpen=false;
 }
 function nvCloseDeck(){
-  // Leaving the deck: pick the collapsed layout for the active section —
-  // the horizontal bottom bar inside a pane, the top-right rail on the map.
-  nvDeckOpen=false;
-  nvLayout = PANES[NV[nvActive].key] ? 'bar' : 'rail';
-  nvTarget=nvActive;
-  nvHit.classList.remove('deck'); nvBack.classList.remove('on'); nvCap.classList.remove('on');
-  nvHit.classList.toggle('bar', nvLayout==='bar');
+  nvDeckOpen=false; nvLayout='bar'; nvTarget=nvActive;
+  nvHit.classList.remove('deck'); nvHit.classList.add('bar');
+  nvBack.classList.remove('on');
+  // restore whatever section was active
+  const key=NV[nvActive].key;
+  Object.keys(PANES).forEach(k=>PANES[k].classList.toggle('on', k===key));
+  nvPaneOpen=!!PANES[key];
 }
-function nvCapUpdate(){
-  const i=Math.max(0,Math.min(NVN-1,Math.round(nvPos)));
-  nvCapSub.textContent=NV[i].sub;
-}
-setInterval(()=>{ if(nvDeckOpen) nvCapUpdate(); },120);
+function nvCapUpdate(){}
 
 /* ==========================================================================
    SECTIONS
@@ -5190,40 +5164,16 @@ function nvGo(i,silent){
   i=Math.max(0,Math.min(NVN-1,i|0));
   const key=NV[i].key;
   nvActive=i; nvTarget=i; nvEnterPulse=1;
-  nvDeckOpen=false;
-  nvLayout = PANES[key] ? 'bar' : 'rail';
-  nvHit.classList.remove('deck'); nvBack.classList.remove('on'); nvCap.classList.remove('on');
-  nvHit.classList.toggle('bar', nvLayout==='bar');
+  nvDeckOpen=false; nvLayout='bar';
+  nvHit.classList.remove('deck'); nvHit.classList.add('bar');
+  nvBack.classList.remove('on');
   Object.keys(PANES).forEach(k=>PANES[k].classList.toggle('on', k===key));
   nvPaneOpen=!!PANES[key];
-  document.body.classList.toggle('on-map', key==='terra'||key==='mappe');
+  document.body.classList.toggle('on-map', key==='terra');
   document.body.classList.toggle('in-section', !!PANES[key]);
 
   if(key==='terra'){
     closePanelSafe();
-    nvSyncing=true;
-    try{ if(viewMode==='flat'){ zoomOutToGlobe(); } }catch(e){}
-    nvSyncing=false;
-  } else if(key==='mappe'){
-    closePanelSafe();
-    nvSyncing=true;
-    try{
-      if(viewMode!=='flat'){
-        zoom=Math.max(zoom, DETAIL_FROM+0.5);
-        enterFlat();
-        render();
-      }
-      // Leaflet can mis-measure while the section is still transitioning in;
-      // re-measure once the layout settles and again shortly after, so tiles
-      // request at the right zoom and fill the viewport at full quality.
-      if(leafletMap){
-        const fix=()=>{ try{ leafletMap.invalidateSize(); rebuildLeafletMarkers(); }catch(e){} };
-        requestAnimationFrame(fix);
-        setTimeout(fix,260);
-        setTimeout(fix,600);
-      }
-    }catch(e){}
-    nvSyncing=false;
   } else if(key==='archivum'){
     renderArchive();
   } else if(key==='animus'){
@@ -5232,29 +5182,6 @@ function nvGo(i,silent){
   PANES[key] && PANES[key].scrollTo && PANES[key].scrollTo(0,0);
 }
 function closePanelSafe(){ try{ closePanel(); }catch(e){} }
-function zoomOutToGlobe(){
-  // leave the flat map and settle back onto a readable globe
-  try{
-    if(viewMode==='flat'){
-      flatZ=Math.min(flatZ, DETAIL_FROM-0.6);
-      enterGlobe();
-      zoom=Math.min(zoom, DETAIL_FROM-0.6);
-      render(); layout(); render();
-    }
-  }catch(e){}
-}
-
-/* Zooming the globe past the detail threshold really does move between
-   Terra and Mappe, so the navigator follows the map rather than fighting it. */
-const _enterFlatAt=enterFlatAt;
-enterFlatAt=function(){ const r=_enterFlatAt.apply(this,arguments); nvFollowMap(); return r; };
-const _enterGlobe=enterGlobe;
-enterGlobe=function(){ const r=_enterGlobe.apply(this,arguments); nvFollowMap(); return r; };
-function nvFollowMap(){
-  // Terra and Mappe are separate sections now; the map view no longer drives
-  // which one is active. Left as a no-op hook.
-  return;
-}
 
 /* ==========================================================================
    ARCHIVUM
@@ -5359,7 +5286,7 @@ function renderAnimus(){
 document.getElementById('an-selections').addEventListener('click',()=>document.getElementById('menu-selections').click());
 document.getElementById('an-export').addEventListener('click',()=>document.getElementById('menu-export').click());
 document.getElementById('an-import').addEventListener('click',()=>document.getElementById('import-file').click());
-document.getElementById('an-save-area').addEventListener('click',()=>{ nvGo(NV[nvActive].key==='mappe'?2:0); setTimeout(()=>document.getElementById('menu-save-area').click(),300); });
+document.getElementById('an-save-area').addEventListener('click',()=>{ nvGo(0); setTimeout(()=>document.getElementById('menu-save-area').click(),300); });
 document.getElementById('an-clear-tiles').addEventListener('click',()=>{ document.getElementById('menu-clear-tiles').click(); setTimeout(renderAnimus,600); });
 document.getElementById('an-account').addEventListener('click',()=>{ document.getElementById('menu-account').click(); setTimeout(renderAnimus,400); });
 document.getElementById('nobis-start').addEventListener('click',()=>nvGo(0));
@@ -5748,8 +5675,8 @@ nvBack.addEventListener('click',()=>{ if(nvDeckOpen) nvCloseDeck(); });
 nvResize();
 // Open on the deck: all globes visible, plus the record button (see rec-orb),
 // so the first screen is the navigator itself.
-nvActive=0; nvTarget=0; nvPos=0; nvDeckT=1; nvBarT=0; nvLayout='deck'; nvDeckOpen=true;
-nvHit.classList.add('deck'); nvBack.classList.add('on'); nvCap.classList.add('on');
+nvActive=0; nvTarget=0; nvPos=0; nvDeckT=1; nvLayout='deck'; nvDeckOpen=true;
+nvHit.classList.add('deck'); nvBack.classList.add('on');
 requestAnimationFrame(nvFrame);
 
 })();
